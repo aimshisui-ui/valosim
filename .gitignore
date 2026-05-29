@@ -1,0 +1,62 @@
+# Build artifacts
+cpp/build/
+build/
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.idb
+*.tlog
+*.log
+build_log.txt
+# Stale test/run logs from prior smoke runs
+cpp/mgr_err.txt
+cpp/mgr_out.txt
+cpp/play_err.txt
+cpp/play_out.txt
+cpp/smoke*.txt
+cpp/test_err.txt
+cpp/test_log.txt
+cpp/test_log_before.txt
+cpp/test_out.txt
+
+# Compiled launcher copies (also at the project root + Desktop)
+/Play.exe
+
+# IDE / editor
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.lnk
+
+# Backup zips
+*.zip
+valosim_backup_*.zip
+
+# Local notes / scratch
+*.bak
+*.tmp
+*.swp
+*~
+
+# CMake artifacts (if anyone tries cmake later)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Local Python / Node tooling output (gen_names.js etc.)
+node_modules/
+__pycache__/
+*.pyc
