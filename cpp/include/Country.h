@@ -25,6 +25,12 @@ const std::vector<Country>& countries();
 const Country* find_country(std::string_view name);
 const Country* find_country_iso(std::string_view iso);
 
+// Sub-regional NEIGHBOR clusters (grounded geographic adjacency, not fabricated).
+// The scouting knowledge model uses these as the tightest coverage ring: a scout's
+// home country + its neighbors are known best, then the wider region, then abroad.
+const std::vector<std::string>& country_neighbors(std::string_view iso);
+bool are_neighbors(std::string_view a, std::string_view b);
+
 // Pick a random country biased to the given region (or any region for
 // imports). Weight-aware so e.g. South Korea spawns more often than Vietnam
 // in Pacific.

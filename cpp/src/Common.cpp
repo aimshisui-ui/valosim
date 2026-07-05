@@ -1,6 +1,8 @@
 #include "Common.h"
+#include "Names.h"   // reset_handle_cache (unique-gamertag registry)
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <fstream>
 #include <numeric>
@@ -43,21 +45,54 @@ void ensure_loaded() {
     if (g_teams.empty()) {
         g_teams = load_lines("CLan names.txt", 4000);
         if (g_teams.empty()) {
-            // Original team names (not real-world esports orgs). Aiming for
-            // single-word punchy brands that read like a pro team without
-            // veering into "fluffy esports nicknames" territory.
-            const std::array<const char*, 36> fallback = {
+            // Curated org names — distinct from real-world esports brands but
+            // tuned to read like modern competitive orgs. Mix of single-word
+            // punchy brands (~70%) and short two-word combos (~30%). Big
+            // enough that two seasons of expansion teams + roster shuffles
+            // never run dry before falling through to the procedural pool.
+            // Compiler-deduced size — explicit `std::array<.., 120>` would
+            // leave any unfilled trailing slots as nullptr, and
+            // `emplace_back(nullptr)` into a string vector is UB. With a
+            // C-style array of deduced extent, slot count == initializer
+            // count, so this stays safe even as entries are added/removed.
+            const char* const fallback[] = {
+                // Single-word brand-modern (read like "Sentinels", "Cloud9").
                 "Aurora",      "Arcus",       "Bastion",     "Cinder",
                 "Cobalt",      "Eclipse",     "Forge",       "Halcyon",
                 "Helios",      "Kestrel",     "Liminal",     "Lumen",
                 "Mantis",      "Nimbus",      "Onyx",        "Quasar",
                 "Rift",        "Solis",       "Strix",       "Umbra",
                 "Verdant",     "Vesper",      "Wraith",      "Zenith",
-                "Zephyr",      "Crimson",     "Stormcrest",  "Tempest",
-                "Veyra",       "Tundra",      "Surge",       "Apex Forge",
-                "Iron Tide",   "North Star",  "Pale Horse",  "Sable Reign"
+                "Zephyr",      "Crimson",     "Tempest",     "Veyra",
+                "Tundra",      "Surge",       "Apogee",      "Pyre",
+                "Vortex",      "Catalyst",    "Citadel",     "Inferno",
+                "Specter",     "Talos",       "Aegis",       "Sentry",
+                "Cipher",      "Mirage",      "Saga",        "Karma",
+                "Reverie",     "Helix",       "Cascade",     "Drift",
+                "Riptide",     "Avalanche",   "Beacon",      "Origin",
+                // Mythic / classical — short, brand-able.
+                "Atlas",       "Apex",        "Nyx",         "Erebus",
+                "Boreas",      "Hekate",      "Orpheus",     "Andromeda",
+                "Cassiopeia",  "Theseus",     "Calypso",     "Caelum",
+                "Nocturna",    "Aurelius",    "Stellaris",   "Solaris",
+                // Punchy one-syllable brands.
+                "Pulse",       "Echo",        "Bolt",        "Halo",
+                "Sable",       "Sigma",       "Omega",       "Vex",
+                "Flux",        "Glyph",       "Spire",       "Crux",
+                "Veil",        "Reign",       "Wrath",       "Frost",
+                // Two-word esport stylings — punchy, no fluff.
+                "Iron Tide",   "North Star",  "Pale Horse",  "Sable Reign",
+                "Final Hour",  "Last Light",  "True North",  "Cold Mirror",
+                "Burning Sky", "Silent Edge", "Apex Forge",  "Stormcrest",
+                "Black Crown", "Golden Hand", "Crimson Reign","Ironclaws",
+                "Stormhounds", "Nightwatch",  "Daybreak",    "Starfall",
+                "Wildfire",    "Skywalkers",  "Deepfreeze",  "Hightide",
+                // Region-flavored brand-modern (geographic but still punchy).
+                "Pacific Heat","Atlantic Storm","Southern Cross","Highland",
+                "Frontier",    "Coastal Surge","Boreal","Equinox"
             };
-            for (auto* n : fallback) g_teams.emplace_back(n);
+            g_teams.reserve(sizeof(fallback) / sizeof(fallback[0]));
+            for (const char* n : fallback) g_teams.emplace_back(n);
         }
         g_rng.shuffle(g_teams);
     }
@@ -453,12 +488,38 @@ std::string generate_org_name() {
                 out = std::string(pick(kSoloNames)) + " " + pick(kSuffixes);
                 break;
             }
-            case 4: {  // acronym style
-                int len = g_rng.irange(2, 4);
-                for (int i = 0; i < len; ++i) {
-                    out += static_cast<char>('A' + g_rng.irange(0, 25));
+            case 4: {  // brand-modern short tag — pronounceable letters,
+                       // not keyboard-mash. Heavy on consonant-vowel patterns
+                       // and brand-style digit prefixes / suffixes that read
+                       // like a competitive org rather than a random TLA.
+                static const char kCons[] = "BCDFGHJKLMNPQRSTVWXZ";
+                static const char kVow[]  = "AEIOU";
+                static const int  kNc = static_cast<int>(sizeof(kCons) - 1);
+                static const int  kNv = static_cast<int>(sizeof(kVow)  - 1);
+                double r = g_rng.uniform();
+                if (r < 0.30) {
+                    // CVC: "RIX", "NOX", "JAG", "VEX"
+                    out.push_back(kCons[g_rng.irange(0, kNc - 1)]);
+                    out.push_back(kVow [g_rng.irange(0, kNv - 1)]);
+                    out.push_back(kCons[g_rng.irange(0, kNc - 1)]);
+                } else if (r < 0.55) {
+                    // CVCC: "VEXT", "RAFT", "JAXX" feel
+                    out.push_back(kCons[g_rng.irange(0, kNc - 1)]);
+                    out.push_back(kVow [g_rng.irange(0, kNv - 1)]);
+                    out.push_back(kCons[g_rng.irange(0, kNc - 1)]);
+                    out.push_back(kCons[g_rng.irange(0, kNc - 1)]);
+                } else if (r < 0.75) {
+                    // Digit + word: "9 Echo", "1 Apex", "100 Surge"
+                    int d = g_rng.irange(0, 4);
+                    const char* prefix = (d == 0) ? "9" : (d == 1) ? "1"
+                                       : (d == 2) ? "100" : (d == 3) ? "7"
+                                       : "3";
+                    out = std::string(prefix) + " " + pick(kSoloNames);
+                } else {
+                    // Word + Esports/GG: punchy brand suffix.
+                    out = std::string(pick(kSoloNames)) + " "
+                        + (g_rng.chance(0.5) ? "GG" : "Esports");
                 }
-                if (g_rng.chance(0.3)) out += std::to_string(g_rng.irange(1, 9));
                 break;
             }
             case 5: {  // animal + descriptor / descriptor + animal-plural
@@ -620,10 +681,69 @@ void reset_name_caches() {
     g_team_cursor = 0;
     g_used_names.clear();
     g_taken_team_names.clear();
+    reset_handle_cache();   // unique-gamertag registry (Names.cpp)
     // Reshuffle so the new world doesn't hand out the exact same names in
     // the exact same order — feels slightly fresher on consecutive boots.
     if (!g_names.empty()) g_rng.shuffle(g_names);
     if (!g_teams.empty()) g_rng.shuffle(g_teams);
+}
+
+// === Save/load registry snapshot + restore ================================
+// The save system persists the two "already handed out" sets so a loaded
+// world never hands a restored player's/org's name to a fresh entity. Only
+// the SETS travel — the cursors are left wherever the post-reset state put
+// them, because both take_* draws re-check the set on every candidate (a
+// stale cursor merely skips names that are already taken).
+std::vector<std::string> snapshot_used_names() {
+    return std::vector<std::string>(g_used_names.begin(), g_used_names.end());
+}
+
+std::vector<std::string> snapshot_taken_team_names() {
+    return std::vector<std::string>(g_taken_team_names.begin(),
+                                    g_taken_team_names.end());
+}
+
+void restore_name_registries(std::vector<std::string> used,
+                             std::vector<std::string> taken) {
+    g_used_names.clear();
+    for (auto& s : used) g_used_names.insert(std::move(s));
+    g_taken_team_names.clear();
+    for (auto& s : taken) g_taken_team_names.insert(std::move(s));
+}
+
+// === Stable entity IDs ===================================================
+// One global monotonic counter shared by Player/Team/Coach. Atomic so it stays
+// correct even though day-sim runs on a worker thread (entity construction is
+// single-threaded today, but atomic costs nothing and future-proofs it). Starts
+// at 1 so id==0 reads as "unset" (default-initialized / pre-id legacy data).
+namespace {
+std::atomic<std::uint64_t> g_next_entity_id{1};
+}
+std::uint64_t next_entity_id() {
+    return g_next_entity_id.fetch_add(1, std::memory_order_relaxed);
+}
+void reset_entity_id_counter(std::uint64_t at_least) {
+    std::uint64_t cur = g_next_entity_id.load(std::memory_order_relaxed);
+    while (cur < at_least &&
+           !g_next_entity_id.compare_exchange_weak(cur, at_least,
+                                                   std::memory_order_relaxed)) {
+        // cur is reloaded by compare_exchange_weak on failure; loop until set.
+    }
+}
+
+// === WS-B region meta (B3) ===============================================
+RegionId region_id_from_name(const std::string& region) noexcept {
+    if (region == "EMEA")    return RegionId::EMEA;
+    if (region == "Pacific") return RegionId::Pacific;
+    return RegionId::Americas;   // default, incl. any unknown region
+}
+const RegionMeta& region_meta(const std::string& region) noexcept {
+    return kRegionMeta[static_cast<std::size_t>(region_id_from_name(region))];
+}
+std::string region_clash_note(const std::string& rA, const std::string& rB) {
+    if (rA == rB) return "";
+    return rA + "'s " + region_meta(rA).brand + " vs " +
+           rB + "'s " + region_meta(rB).brand;
 }
 
 }  // namespace vlr

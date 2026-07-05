@@ -12,6 +12,21 @@
 
 namespace vlr {
 
+// WS-B: the single bounded per-side match tilt (team identity + coach + region
+// + intl style-clash), hard-clamped to [0.95, 1.05]; exactly 1.0 for soloq /
+// friendlies. Defined in Match.cpp; declared here so the smoke test can assert
+// the double-count guard + clamp against the exact engine code. See the
+// definition for the no-double-count rationale (region folds into identity).
+// Per-map PREP tilt (Scouting&Match-Prep increment E). Returns 1.0 unless `tm`
+// has a prep level set for `map` — then a BOUNDED, PURE-UPSIDE edge in [1.0,1.03]
+// scaled by prep level x the user's analyst quality (q01). Clamped so it can
+// never penalise and never exceed +3%. Applied to the USER's side only (see
+// Match::set_prep_context); the dom_cap binds AFTER it, so the KD ceiling holds.
+double prep_match_tilt(const Team& tm, const GameMap& map, double analyst_q01) noexcept;
+
+double wsb_match_tilt(const Team& tm, const Team& opp,
+                      bool intl, bool soloq_or_friendly) noexcept;
+
 // Per-kill context, used to weight the kill contribution component of the
 // VLR-style rating (see Match::compute_rating). Mirrors the situational
 // modifiers VLR.gg applies: clutch bonus, advantage diminishing returns,
@@ -71,6 +86,17 @@ struct RoundEvent {
     int     t2_alive;
 };
 
+// WS-C R1: how a round ENDED, for the narrative layer. The engine decides every
+// round by ELIMINATION (the surviving team wins); this is plausible post-decision
+// flavor synthesized DETERMINISTICALLY (no rng) at finalize, so it never moves
+// the duel stream / KD / dynasty balance.
+enum class RoundEndKind : std::uint8_t {
+    Elimination,      // wiped the other side (no plant, or aced pre-plant)
+    SpikeDetonation,  // attackers planted + the spike went off
+    Defuse,           // defenders retook a planted site + defused
+    TimeExpiry        // no commit / clock ran out (rare, low-buy)
+};
+
 struct RoundLog {
     int  round = 0;
     std::string winner_name;
@@ -79,6 +105,12 @@ struct RoundLog {
     int  t1_invest = 0;
     int  t2_invest = 0;
     std::vector<RoundEvent> events;
+    // WS-C R1 round-resolution metadata (deterministic, no-rng; default-init so
+    // legacy/empty RoundLogs read as a plain elimination).
+    bool         t1_attacking  = false;  // was team1 on the attacking side?
+    bool         spike_planted = false;
+    bool         was_retake    = false;  // defenders retook a planted site
+    RoundEndKind end_kind      = RoundEndKind::Elimination;
 };
 
 struct PlayerLine {
@@ -144,6 +176,23 @@ public:
     bool is_solo_q() const noexcept { return is_solo_q_; }
     bool is_friendly() const noexcept { return friendly_; }
 
+    // Per-side duel-power multiplier (1.0 = neutral). The world-difficulty
+    // setting scales the AI side(s) so the user's matches get harder (>1) or
+    // easier (<1); leaving both at 1.0 keeps AI-vs-AI matches unchanged.
+    void set_strength_mults(double t1, double t2) noexcept {
+        t1_strength_mult_ = t1;
+        t2_strength_mult_ = t2;
+    }
+
+    // Per-map prep context (increment E). Set ONLY for the USER's competitive
+    // matches: `user` is the user team (the side whose prep applies) and q01 is
+    // their head analyst's quality (0 if none). Default (null) => prep tilt is a
+    // strict 1.0 on both sides, so every AI-vs-AI / dynasty-sim match is unchanged.
+    void set_prep_context(Team* user, double analyst_q01) noexcept {
+        prep_user_ = user;
+        prep_analyst_q01_ = analyst_q01 < 0.0 ? 0.0 : (analyst_q01 > 1.0 ? 1.0 : analyst_q01);
+    }
+
 private:
     TeamPtr team1_;
     TeamPtr team2_;
@@ -160,6 +209,10 @@ private:
     int t2_loss_streak_ = 0;
     double t1_ovr_ = 0.0;
     double t2_ovr_ = 0.0;
+    double t1_strength_mult_ = 1.0;   // world-difficulty AI scaling (1.0 = neutral)
+    double t2_strength_mult_ = 1.0;
+    Team*  prep_user_ = nullptr;       // increment E: the user side prep applies to (null = none)
+    double prep_analyst_q01_ = 0.0;    // user analyst quality scaling the prep tilt
 
     std::unordered_map<Player*, const Agent*> chosen_agents_;
     std::unordered_map<Player*, PlayerMatchStats> match_stats_;

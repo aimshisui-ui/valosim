@@ -25,13 +25,42 @@ namespace vlr {
 // 128 px team-profile heroes.
 // ---------------------------------------------------------------------------
 
+// As of 2026-06-11 the logo system is a TYPOGRAPHIC MONOGRAM BADGE rather
+// than a procedural emblem. Every team's logo is composed of three pieces,
+// all driven from `shape_idx` and the optional `tag`:
+//
+//   1. Frame backplate — one of 5 polished shapes (Shield, Hexagon, Circle,
+//      Diamond, Banner) selected via `shape_idx % 5`. Each shape renders
+//      with a depth stack (drop shadow → darker rim → primary fill → top
+//      highlight → hairline accent border).
+//   2. Monogram — the team's `tag` rendered as bold typography in the
+//      center using the active ImGui font. Auto-sized for tag length and
+//      drop-shadowed for depth. Color picked for luma contrast against
+//      the primary backplate (accent → white → black fallback chain).
+//      If `tag` is null/empty, a per-shape default monogram is used so
+//      legacy callers still render a brand-feel badge.
+//   3. Accent flourish — one of 4 small decorations (top stripe, corner
+//      dots, bottom chevron, or inner outline of the same frame shape)
+//      selected via `(shape_idx / 5) % 4`.
+//
+// 5 frames × 4 accents = 20 distinct badge templates, multiplied by the
+// team-color palette and unique 3-letter tag — so the league reads as a
+// coherent set of professional wordmarks rather than 30 disconnected
+// procedural silhouettes.
+//
+// `shape_idx` is expected to be in [0, kLogoShapeCount). Out-of-range
+// values are wrapped via modulo.
 void draw_team_logo(ImDrawList* dl, ImVec2 center, float radius,
                     std::uint8_t shape_idx,
-                    ImU32 color_primary, ImU32 color_accent);
+                    ImU32 color_primary, ImU32 color_accent,
+                    const char* tag = nullptr);
 
-// Number of shape variants supported. Kept in lockstep with Agent A's
-// LogoShape enum count. If the enum grows beyond 22 entries, update this
-// value AND add new draw branches to LogoArt.cpp.
-constexpr std::uint8_t kLogoShapeCount = 22;
+// Number of distinct shape-idx values consumed by the assignment hash on
+// the Team side. The badge composition (frame × accent) only uses 20
+// combinations, but we keep a wider hash range so the personality-bias
+// pools on Team::Team (Aggressive/Tactical/Budget) still spread teams
+// across the badge templates evenly. Must stay in lockstep with
+// `LogoShape::Count` in Team.h.
+constexpr std::uint8_t kLogoShapeCount = 30;
 
 }  // namespace vlr

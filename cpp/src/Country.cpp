@@ -1,12 +1,40 @@
 #include "Country.h"
 
 #include <algorithm>
+#include <unordered_map>
 
 namespace vlr {
 
 namespace {
 
 constexpr std::array<const char*, 3> kRegionNames = {"Americas", "EMEA", "Pacific"};
+
+std::unordered_map<std::string, std::vector<std::string>> g_neighbors;
+const std::vector<std::string> kNoNeighbors;
+
+void init_neighbors() {
+    if (!g_neighbors.empty()) return;
+    auto add = [](const char* iso, std::vector<std::string> n) { g_neighbors[iso] = std::move(n); };
+    // Americas — North America {us,ca}, Latin America {br,mx,ar,cl} (mx bridges).
+    add("us", {"ca", "mx"});          add("ca", {"us"});
+    add("mx", {"us", "br", "ar", "cl"}); add("br", {"ar", "cl", "mx"});
+    add("ar", {"cl", "br", "mx"});    add("cl", {"ar", "br", "mx"});
+    // EMEA — Nordics / British Isles / West-Central / East clusters.
+    add("de", {"nl", "fr", "pl", "dk"}); add("se", {"fi", "no", "dk"});
+    add("gb", {"sct", "ie", "fr"});   add("ua", {"ru", "pl", "tr"});
+    add("fr", {"de", "es", "it", "nl", "gb"}); add("tr", {"ua", "ru"});
+    add("fi", {"se", "no"});          add("sct", {"gb", "ie"});
+    add("ie", {"gb", "sct"});         add("es", {"fr", "it"});
+    add("ru", {"ua", "pl", "tr"});    add("pl", {"de", "ua", "ru"});
+    add("nl", {"de", "fr"});          add("it", {"fr", "es"});
+    add("dk", {"de", "se", "no"});    add("no", {"se", "fi", "dk"});
+    // Pacific — East Asia {kr,jp,cn}, SEA {sg,th,vn,ph,id}, Oceania {au}.
+    add("au", {"id"});                add("kr", {"jp", "cn"});
+    add("jp", {"kr", "cn"});          add("sg", {"th", "vn", "id", "ph"});
+    add("th", {"vn", "sg", "id"});    add("vn", {"th", "sg", "cn"});
+    add("ph", {"sg", "id"});          add("cn", {"kr", "jp", "vn"});
+    add("id", {"sg", "au", "ph", "th"});
+}
 
 std::vector<Country> g_countries;
 
@@ -110,6 +138,17 @@ const Country& pick_country_any() {
     int pick = rng().weighted_index(w);
     if (pick < 0) pick = 0;
     return cs[pick];
+}
+
+const std::vector<std::string>& country_neighbors(std::string_view iso) {
+    init_neighbors();
+    auto it = g_neighbors.find(std::string(iso));
+    return it != g_neighbors.end() ? it->second : kNoNeighbors;
+}
+
+bool are_neighbors(std::string_view a, std::string_view b) {
+    const auto& n = country_neighbors(a);
+    return std::find(n.begin(), n.end(), std::string(b)) != n.end();
 }
 
 }  // namespace vlr

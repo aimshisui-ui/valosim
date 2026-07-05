@@ -6,6 +6,7 @@
 #include <array>
 #include <cctype>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace vlr {
 
@@ -120,17 +121,67 @@ const char* const kRoots[] = {
     "Snare", "Solo", "Spire", "Static", "Storm", "Strike", "Surge",
     "Synth", "Syrup", "Tilt", "Trace", "Trick", "Twilight", "Vibe",
     "Volt", "Vortex", "Wave", "Whisk", "Xenon", "Yonder", "Zephyr",
-    "Zero", "Zest", "Zoom"
+    "Zero", "Zest", "Zoom",
+    // === Expansion (2026-06-28): ~2700 players need far more combinatorial
+    // room — the original 92 roots guaranteed birthday-paradox duplicates.
+    "Aero", "Alloy", "Amber", "Angle", "Anvil", "Aqua", "Arcane", "Ash",
+    "Aster", "Astro", "Aura", "Axion", "Azure", "Bandit", "Bane", "Bishop",
+    "Blitz", "Bloom", "Blur", "Boost", "Briar", "Brook", "Cameo", "Canyon",
+    "Carbon", "Cedar", "Chaos", "Charm", "Chase", "Chill", "Chrome", "Cinder",
+    "Circuit", "Cleric", "Cliff", "Clover", "Coral", "Cortex", "Coyote",
+    "Crane", "Crater", "Creed", "Crest", "Crow", "Crypt", "Cyclone", "Dagger",
+    "Dart", "Dawn", "Decoy", "Delta", "Dice", "Dingo", "Djinn", "Draco",
+    "Drake", "Dread", "Dream", "Drone", "Dune", "Dynamo", "Eagle", "Eclipse",
+    "Ender", "Enigma", "Envy", "Epoch", "Ether", "Exile", "Fable", "Falcon",
+    "Fang", "Fathom", "Feral", "Fern", "Fjord", "Flare", "Fleet", "Flick",
+    "Flint", "Forge", "Fox", "Fresco", "Fuse", "Gale", "Gambit", "Gecko",
+    "Ghost", "Glacier", "Gloom", "Goblin", "Granite", "Griffin", "Grim",
+    "Groove", "Gust", "Haven", "Havoc", "Hazard", "Heron", "Hollow", "Hound",
+    "Hush", "Hydra", "Hyper", "Ibis", "Icarus", "Ivory", "Jade", "Jag",
+    "Jazz", "Jester", "Jinx", "Joule", "Kestrel", "Kilo", "Kindle", "Knack",
+    "Koda", "Kraken", "Lark", "Laser", "Latch", "Ledge", "Lemur", "Lens",
+    "Lex", "Limbo", "Lotus", "Lucid", "Lunar", "Lynx", "Macro", "Mamba",
+    "Mantis", "Marble", "Mason", "Matrix", "Meteor", "Mocha", "Mono", "Moss",
+    "Moth", "Mystic", "Nebula", "Nectar", "Nimbus", "Ninja", "Nomad", "North",
+    "Oasis", "Ocean", "Omen", "Opal", "Oracle", "Osprey", "Otter", "Ozone",
+    "Panda", "Panther", "Patch", "Pearl", "Pebble", "Penta", "Phantom",
+    "Phase", "Pilot", "Pine", "Piston", "Pivot", "Plasma", "Pluto", "Poise",
+    "Prime", "Prism", "Prowl", "Pyro", "Quantum", "Quill", "Rally", "Rapid",
+    "Raven", "Razor", "Realm", "Rebel", "Reef", "Reflex", "Relay", "Relic",
+    "Rhythm", "Ridge", "Rift", "Ripple", "Rocket", "Rogue", "Rook", "Rover",
+    "Ruby", "Rush", "Saber", "Sage", "Sable", "Scarab", "Script", "Scythe",
+    "Sepia", "Shard", "Shark", "Shift", "Shiver", "Silk", "Siren", "Sketch",
+    "Skye", "Slick", "Slip", "Smoke", "Sonar", "Sonic", "Spark", "Specter",
+    "Sphinx", "Spike", "Splash", "Sprint", "Squall", "Stag", "Stealth",
+    "Steel", "Stellar", "Sting", "Stray", "Stride", "Summit", "Swift", "Sync",
+    "Talon", "Tango", "Tarot", "Tempest", "Tempo", "Terra", "Thorn",
+    "Thunder", "Tidal", "Tiger", "Timber", "Titan", "Tonic", "Topaz", "Torch",
+    "Torque", "Toxin", "Trek", "Tremor", "Trigger", "Trove", "Tundra",
+    "Turbo", "Tusk", "Umbra", "Ursa", "Vale", "Vapor", "Vector", "Veil",
+    "Velvet", "Venom", "Verge", "Vertex", "Vex", "Viper", "Vista", "Void",
+    "Vulcan", "Warden", "Wasp", "Whirl", "Widow", "Willow", "Wisp", "Wraith",
+    "Wren", "Xylo", "Yeti", "Zeal", "Zen", "Zenith", "Zinc", "Zodiac"
 };
 
 const char* const kSuffixes[] = {
-    "x", "z", "r", "y", "ix", "ko", "es", "ah", "io", "ka", "qi", "vy"
+    "x", "z", "r", "y", "ix", "ko", "es", "ah", "io", "ka", "qi", "vy",
+    "s", "er", "on", "in", "ex", "us", "ie", "oz", "ay", "va", "ki", "ro",
+    "za", "mi", "no", "ta"
 };
 
 const char* const kSecondWords[] = {
     "Byte", "Wolf", "Hawk", "Frost", "Edge", "Pulse", "Clip", "Strike",
-    "Beam", "Drift", "Pixel", "Saint", "Storm", "Glide"
+    "Beam", "Drift", "Pixel", "Saint", "Storm", "Glide",
+    "Shot", "Dash", "Zone", "Core", "Line", "Path", "Rock", "Fire",
+    "Rain", "Snow", "Peak", "Tide", "Wing", "Claw", "Mind", "Step",
+    "Trap", "View", "Ward", "Lock", "Burn", "Jump", "Call", "Gate"
 };
+
+// Every handle ever issued this world — make_handle retries through this so
+// two players can never share a gamertag (the user hit birthday-paradox
+// duplicates once the ladder crossed ~2700 players). Cleared per-world via
+// reset_handle_cache() (called from reset_name_caches).
+std::unordered_set<std::string> g_used_handles;
 
 std::string lowercase(std::string s) {
     for (auto& c : s) c = (char)std::tolower((unsigned char)c);
@@ -156,7 +207,7 @@ std::string apply_leet(std::string s) {
     return s;
 }
 
-std::string make_handle() {
+std::string make_handle_once() {
     constexpr int kRootCount = static_cast<int>(sizeof(kRoots) / sizeof(*kRoots));
     constexpr int kSuffCount = static_cast<int>(sizeof(kSuffixes) / sizeof(*kSuffixes));
     constexpr int kSecCount  = static_cast<int>(sizeof(kSecondWords) / sizeof(*kSecondWords));
@@ -185,6 +236,22 @@ std::string make_handle() {
             return root + second;
         }
     }
+}
+
+// Unique-handle wrapper: retry fresh rolls, then de-dup like real platforms do —
+// tack a number on. Deterministic given the rng stream; no two players ever
+// share a gamertag within a world.
+std::string make_handle() {
+    for (int attempt = 0; attempt < 24; ++attempt) {
+        std::string h = make_handle_once();
+        if (g_used_handles.insert(h).second) return h;
+    }
+    std::string base = make_handle_once();
+    for (int n = 2; n < 10000; ++n) {
+        std::string h = base + std::to_string(n);
+        if (g_used_handles.insert(h).second) return h;
+    }
+    return base + "_" + std::to_string(g_used_handles.size());   // unreachable in practice
 }
 
 }  // namespace
@@ -278,5 +345,21 @@ PlayerIdentity make_identity(const Country& country) {
 }
 
 std::string generate_handle() { return make_handle(); }
+
+// Per-world reset of the unique-gamertag registry (called from
+// reset_name_caches() so a fresh world can reuse the full handle space).
+void reset_handle_cache() { g_used_handles.clear(); }
+
+// === Save/load handle-registry snapshot + restore ==========================
+// Persisted alongside the Common.cpp name registries so a loaded world can't
+// hand a restored player's gamertag to a freshly generated rookie.
+std::vector<std::string> snapshot_used_handles() {
+    return std::vector<std::string>(g_used_handles.begin(), g_used_handles.end());
+}
+
+void restore_used_handles(std::vector<std::string> v) {
+    g_used_handles.clear();
+    for (auto& s : v) g_used_handles.insert(std::move(s));
+}
 
 }  // namespace vlr

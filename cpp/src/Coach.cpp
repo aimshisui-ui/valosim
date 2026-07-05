@@ -8,17 +8,32 @@
 namespace vlr {
 
 Coach::Coach(std::string n, std::string r)
-    : name(std::move(n)), region(std::move(r)) {}
+    : name(std::move(n)), region(std::move(r)) { id = next_entity_id(); }
 
 double Coach::match_synergy_mult() const noexcept {
     double t = clamp_v(tactical / 100.0, 0.0, 1.0);
     double l = clamp_v(leadership / 100.0, 0.0, 1.0);
-    return 1.00 + 0.18 * t + 0.04 * l;
+    // WS-B INC-4: 1.00..1.25. Feeds team coordination AND a slice of the bounded
+    // match tilt's coach_term. Verified at the dynasty gate: with the dev pass
+    // held at single-roll, back-to-back champ lands ~10% (very rare dynasties,
+    // KD ceiling untouched at 1.37) — the intended "felt but bounded" impact.
+    return 1.00 + 0.20 * t + 0.05 * l;
 }
 
 double Coach::dev_chance_mult() const noexcept {
     double d = clamp_v(development / 99.0, 0.0, 1.0);
-    return 0.85 + 0.45 * d;
+    // WS-B INC-3 retune (0.85..1.40, was 0.85..1.30): a true DevelopmentCoach
+    // now meaningfully out-develops a win-now coach so the choice "actually
+    // does shit". Still bounded + potential-gated at the dev pass.
+    return 0.85 + 0.55 * d;
+}
+
+// Per-roll player-growth chance contributed by THIS coach, before the team's
+// dev_focus weighting + youth steepening (both applied at the year-end dev
+// pass). Derived purely from dev_chance_mult so the two never drift: a weak-dev
+// coach yields a tiny/zero base, a DevelopmentCoach a much larger one.
+double Coach::dev_growth_factor() const noexcept {
+    return (dev_chance_mult() - 1.0) * 0.8;
 }
 
 int Coach::requested_salary_k() const noexcept {
@@ -26,7 +41,15 @@ int Coach::requested_salary_k() const noexcept {
                      (leadership * 0.15) + (experience * 0.10);
     double q01 = clamp_v(quality / 99.0, 0.0, 1.0);
     int base = 30 + static_cast<int>(q01 * q01 * 600.0);
-    return clamp_v(base, 15, 999);
+    // Reputation premium (FM-depth): a proven, high-rep coach commands more
+    // (~0.85x at rep 1, ~1.30x at rep 99) — rich orgs pay up for a decorated
+    // name; poor orgs hire cheaper up-and-comers.
+    double rep_mult = 0.85 + 0.45 * (reputation / 99.0);
+    base = static_cast<int>(base * rep_mult);
+    // Respect the league-wide salary cap (kSalaryCapK=180) introduced in the
+    // 2026-05 financial rebalance; the old 999 ceiling let a top coach demand
+    // $999K, far above every player's cap and the ~$2M team-budget scale.
+    return clamp_v(base, 15, kSalaryCapK);
 }
 
 const char* coach_personality_name(CoachPersonality p) noexcept {
@@ -149,6 +172,10 @@ CoachPtr generate_coach(std::string region) {
     c->leadership  = clamp_attr(bias[2] + rng().irange(-spread, spread));
     c->experience  = clamp_attr(bias[3] + rng().irange(-spread, spread));
     c->age         = rng().irange(28, 55);
+    // Seed a varied starting reputation (a few up-and-comers, a few decorated
+    // names) BEFORE salary so the requested salary reflects standing.
+    c->reputation  = rng().irange(28, 72);
+    c->career_seasons = rng().irange(0, 6);
     c->salary_k    = c->requested_salary_k();
     c->contract_years = rng().irange(1, 4);
     return c;

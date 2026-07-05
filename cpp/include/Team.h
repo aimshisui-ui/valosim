@@ -4,6 +4,8 @@
 #include "Coach.h"
 #include "Common.h"
 #include "Player.h"
+#include "Scout.h"
+#include "Analyst.h"
 
 #include <cstdint>
 #include <functional>
@@ -14,6 +16,8 @@
 #include <vector>
 
 namespace vlr {
+
+class SaveGame;   // binary save/load (SaveGame.cpp) — friended on Team for private history
 
 enum class Personality : std::uint8_t { Aggressive, Tactical, Budget, Balanced };
 
@@ -33,6 +37,21 @@ enum class CompIdentity : std::uint8_t {
 const char* identity_name(CompIdentity ci) noexcept;
 CompIdentity pick_comp_identity_from_personality(Personality p);
 
+// WS-B: a club's BRAND TAG — the human label for its computed TeamIdentity (the
+// (aggression, dev_youth) quadrant, with a dynasty flavour). 7 tags = the
+// complete taxonomy. Derived from compute_team_identity, never authoritative.
+enum class BrandTag : std::uint8_t {
+    AggressiveEntryMerchants,
+    TacticalMasterminds,
+    AcademyPowerhouse,
+    WinNowSpenders,
+    MethodicalGrinders,
+    DefensiveWall,
+    BalancedContenders
+};
+const char* brand_tag_name(BrandTag b) noexcept;
+const char* brand_tag_blurb(BrandTag b) noexcept;
+
 // Visual logo glyph for the team banner / bracket cards / scoreboard chip.
 // Drawn procedurally by `LogoArt.cpp` (Agent B) — this enum is purely an
 // identifier the renderer dispatches on. Order is stable; new entries MUST
@@ -41,6 +60,10 @@ enum class LogoShape : std::uint8_t {
     Shield, Hexagon, Diamond, Circle, Triangle, Star, LightningBolt,
     Crown, Wolf, Eagle, Phoenix, Dragon, Wave, Mountain, Sun,
     Crosshair, Sword, Anchor, Flame, Skull, Compass, Tree,
+    // Added after the unified-backplate logo revamp. Order is stable —
+    // new entries always append before Count so name-hash assignments for
+    // existing teams stay deterministic across builds.
+    Fangs, Trident, CrossedSwords, Gear, Talon, Eye, Cobra, Sunburst,
     Count
 };
 
@@ -93,9 +116,86 @@ struct TeamHistoryEntry {
     int losses;
 };
 
+// Transient squad-need snapshot — how well each CORE role (Duelist=0,
+// Initiator=1, Controller=2, Sentinel=3) is covered by the starting 5, and
+// which role is the biggest hole. Recomputed on demand; holds NO PlayerPtr,
+// so it never participates in the never-free invariant. Drives the need-gated
+// scouting pipeline + sharpens auto_fill_roster's role targeting.
+struct RoleNeed {
+    int    count[4]    = {0, 0, 0, 0};   // starters covering each core role
+    double best_ovr[4] = {0, 0, 0, 0};   // best starter OVR in each role
+    double need[4]     = {0, 0, 0, 0};   // 0..1 hole severity per role
+    Role   most_needed = Role::Count;    // single biggest hole (Count == none)
+    double most_need_score = 0.0;
+};
+
+// Coach-archetype roster lean — how the head coach's personality tilts roster
+// BUILDING (not just match-day). youth_lean>0 prefers young/high-ceiling, <0
+// prefers proven veterans; risk_appetite>0 gambles on volatile high-ceiling,
+// <0 prizes consistency. Both roughly [-1, +1]. Neutral {0,0} when no coach is
+// bound. Until now coaches affected ONLY match synergy + player development —
+// this is the hook that lets a DevelopmentCoach actually build differently
+// from a Pragmatist.
+struct CoachLean {
+    double youth_lean    = 0.0;
+    double risk_appetite = 0.0;
+    // Finance lean (Workstream C4): >0 pushes the org to SPEND (win-now), <0
+    // keeps it frugal. Development lean: >0 weights youth dev harder. Both ~[-1,1].
+    double finance_lean  = 0.0;
+    double dev_focus     = 0.0;
+};
+
+// WS-B TEAM IDENTITY — a club's playstyle fingerprint, CACHED on Team and
+// refreshed yearly (NOT per-frame), parallel to `strategy`. Pure value data (no
+// pointers) so it's never-free safe. Default is NEUTRAL (axes 0.5) so an
+// unrefreshed team produces ZERO match tilt. aggression: 0 methodical .. 1
+// aggressive; dev_youth: 0 win-now .. 1 youth-first. user_chosen marks a
+// user-picked club philosophy (vs an emergent derivation).
+struct TeamIdentity {
+    double   aggression  = 0.5;
+    double   dev_youth   = 0.5;
+    CompTag  comp_lean   = CompTag::DoubleInitiator;
+    BrandTag brand       = BrandTag::BalancedContenders;
+    bool     user_chosen = false;
+};
+
+// Where an org sits on the rich<->poor spectrum. Recomputed at year-end from
+// cash + income; drives the spend fork, fee headroom, and the finance-UI badge.
+enum class WealthTier : std::uint8_t { Poor, Modest, Stable, Rich, SuperRich };
+const char* wealth_tier_name(WealthTier w) noexcept;
+
+// Season-start sponsor requirement (item 4). The user picks one of three
+// offers at preseason; meeting the requirement credits a modest one-time lump
+// to the club budget at year-end. Lives here (not GameManager.h) so Team can
+// carry the chosen deal; GameManager's SponsorOffer struct reuses this enum.
+enum class SponsorReqType : std::uint8_t {
+    Placement,            // finish <= value in the league table
+    WinCount,             // >= value regular-season wins
+    TitleBerth,           // reach a regional playoff (placement <= cutoff)
+    IndividualMilestone   // a rostered player ends the season >= 1.15 rating
+};
+
+// One completed transfer (or free signing) for the market log + finance UI.
+// Mirrored onto BOTH clubs involved. from_team == "Free Agent" for a free
+// signing (fee_k == 0). Never references a Player/Team pointer — pure record.
+struct TransferRecord {
+    int         year = 0;
+    std::string player;
+    std::string from_team;   // selling club, or "Free Agent"
+    std::string to_team;     // buying club
+    int         fee_k = 0;   // transfer fee paid buyer->seller ($K); 0 for an FA
+    int         wage_k = 0;  // the new annual wage ($K)
+};
+
 class Team : public std::enable_shared_from_this<Team> {
 public:
+    // Save/load reads+writes trophy_history_/finals_history_ (private, no
+    // setters) so a restored club keeps its full silverware record.
+    friend class SaveGame;
+
     Team(std::string name, long long budget, std::string region);
+
+    std::uint64_t id = 0;   // stable, unique id (stamped in ctor; save handle)
 
     std::string name;
     std::string tag;                // 3-letter ALL-CAPS abbreviation (e.g. "FNX")
@@ -152,6 +252,36 @@ public:
 
     int prestige = 50;       // 0..99, affects FA willingness to sign
     int sponsorship_k = 800; // annual sponsorship income, $K
+
+    // === Anti-dynasty signals (POD) ===
+    int core_wage_pressure_pct = 0;  // YoY % wage escalation on the starting 5 (finance UI)
+    int titles_total_cached    = 0;  // trophy_case reg+mas+world total, stamped year-end
+
+    // === Season sponsor (item 4) — the user's chosen deal + tracking state ===
+    // Stamped by GameManager::choose_sponsor at preseason; evaluated + credited
+    // at year-end by settle_sponsor. Strings/ints only (never-free safe).
+    std::string    sponsor_name;
+    SponsorReqType sponsor_req_type = SponsorReqType::Placement;
+    int            sponsor_req_value = 0;
+    int            sponsor_reward_k  = 0;
+    bool           sponsor_active    = false;   // false = no/declined sponsor
+    bool           sponsor_credited  = false;   // year-end payout already paid?
+
+    // === Finance projection (FM-depth economy) =============================
+    // Set at year-end by GameManager::project_team_finances — a READ-ONLY signal
+    // for the wage envelope + the finance dashboard. All in $K. last_revenue_k
+    // is the income actually booked last finance pass (real components, EMA'd in
+    // B4); projected_income_k / committed_payroll_k / wage_envelope_k drive what
+    // the AI can responsibly SPEND next season. wealth_tier buckets rich<->poor.
+    int        last_revenue_k      = 0;
+    int        projected_income_k  = 0;
+    int        committed_payroll_k = 0;
+    int        wage_envelope_k     = 0;
+    int        net_transfer_k      = 0;   // net fees in(+)/out(-) this season, $K
+    WealthTier wealth_tier         = WealthTier::Stable;
+    // Club-to-club transfer history (most-recent-first, capped). Mirrored onto
+    // both clubs by pay_transfer_fee. Pure records — no Player/Team pointers.
+    std::vector<TransferRecord> transfer_log_;
 
     // === Organizational Memory =============================================
     //
@@ -247,13 +377,39 @@ public:
 
     Personality personality = Personality::Balanced;
     CompIdentity comp_identity = CompIdentity::Balanced;
+    TeamIdentity identity{};   // WS-B: cached playstyle fingerprint (refreshed yearly)
     CompPlan    target_comp{};
     ScoutPrefs  scout_prefs{};
 
+    // User-set per-map comp override (map name -> CompTag). A map absent from
+    // this means "Auto" (the engine's decide_desired_tag picks). Coarse
+    // archetype-level control; superseded by agent_override below when set.
+    std::unordered_map<std::string, CompTag> comp_override;
+
+    // User-set FULL per-map agent comp (map name -> exactly 5 agent names).
+    // This is the granular control from the Strategy tab: the user picks the
+    // exact 5 agents to field on a map and build_round_selection assigns the
+    // starting 5 to them by best fit. Takes precedence over comp_override.
+    // Only the user populates this; AI teams leave it empty.
+    std::unordered_map<std::string, std::vector<std::string>> agent_override;
+
+    // Per-map PREP (Scouting&Match-Prep increment E). level 0=None, 1=Standard,
+    // 2=Heavy. Drives a BOUNDED, pure-upside per-side match tilt (prep_match_tilt
+    // in Match.cpp, clamped [1.0,1.03], scaled by the user's analyst quality) that
+    // applies ONLY to the USER's competitive matches (set via Match::set_prep_
+    // context). AI teams leave this empty -> tilt 1.0 -> AI/dynasty sim unchanged.
+    struct MapPrep { int level = 0; };
+    std::unordered_map<std::string, MapPrep> map_prep;
+
     std::vector<PlayerPtr> roster;
     CoachPtr               head_coach;
+    ScoutPtr               head_scout;   // WS-A: managed scout staff (parallels head_coach)
+    AnalystPtr             head_analyst; // Scouting&Match-Prep: 3rd staff slot (opposition reports + per-map prep)
     int wins = 0, losses = 0;
     int phase_wins = 0, phase_losses = 0;
+    // Rolling recent LEAGUE results (1 = win, 0 = loss), newest pushed to the
+    // back, capped at 10. Drives the Standings "last-5 form" sparkline (Group F).
+    std::vector<std::uint8_t> recent_results;
     std::vector<TeamHistoryEntry> history;
 
     double ovr() const;
@@ -268,6 +424,88 @@ public:
     void sign_player(const PlayerPtr& p, int years, int current_year,
                      Role intended_role);
     void release_player(const PlayerPtr& p);
+
+    // Benching: swap a starter (roster[0..4]) with a bench player (roster[5..])
+    // by exchanging their vector positions. The benched player stays rostered
+    // and PAID (still under contract) — they just stop playing. Re-runs the
+    // IGL/Flex enforcers so the new starting 5 is legal. Returns false if
+    // either player isn't found or both are on the same side of the bench line.
+    bool swap_roster_slots(const PlayerPtr& benchee, const PlayerPtr& starter);
+
+    // Merit-based starting 5: bench a slumping/weaker starter for a clearly
+    // better same-role (or high-fit flex) reserve. Protects young prospects,
+    // needs a form sample, and uses a hysteresis margin so it doesn't thrash.
+    // Routes every move through swap_roster_slots (IGL/Flex stay legal). The AI
+    // calls this each offseason (and mid-season) so it actually starts its best 5.
+    void optimize_starting_five(int current_year);
+
+    // === FM-depth roster intelligence =====================================
+    // Squad-need snapshot over the starting 5 (transient; no PlayerPtr held).
+    // A role with 0 coverage is a full hole (need 1.0); a covered-but-weak role
+    // scales up to ~0.6. most_needed is the single biggest hole.
+    RoleNeed compute_role_need() const;
+
+    // Head-coach archetype -> roster-building lean (youth vs proven, risk vs
+    // consistency). Neutral {0,0} when no coach is bound. Reads head_coach only.
+    CoachLean coach_lean() const;
+
+    // Need-gated, upgrade-gated valuation of a SCOUT TARGET (a tier-2 riser or
+    // top solo-Q FA) for this team THIS year. Returns a positive score only
+    // when the candidate (a) fills a genuine role hole, (b) clears role-fit,
+    // (c) is a real upgrade over the weakest same-role incumbent, and (d) is
+    // affordable. Returns 0.0 otherwise (do NOT sign). Strategy + coach lean +
+    // window all tilt the score. Pure/read-only.
+    // `sharpness` (P3.1, default 1.0 == strict no-op) = the AI manager's quality,
+    // driven by world_difficulty(). >1.0 lowers the upgrade bar (harder AI poaches
+    // more decisively); <1.0 raises it (easier AI passes marginal upgrades). At
+    // 1.0 every term below is byte-identical to the legacy behaviour, so the
+    // difficulty --dynasty (which runs at 1.0) is unaffected.
+    // out_fill_role (optional): when the call returns a positive score, receives
+    // the ROLE this candidate is being scouted to fill — the candidate's natural
+    // role if that is the need, else the most-needed role for a cross-role flex.
+    // The caller pins the signing to this role (4-arg sign_player) so the scouted
+    // hole actually closes instead of the player reverting to their natural role.
+    double score_scout_target(const Player& cand, const RoleNeed& need,
+                              int current_year, double sharpness = 1.0,
+                              Role* out_fill_role = nullptr) const;
+
+    // === FM-depth economy =================================================
+    // Transfer FEE this club would owe to sign `p` from their current club.
+    // 0 for a free agent (wages only); a contracted player ($K, [kMinFeeK,
+    // kMaxFeeK]) sized off value, years left, and a scarcity premium. Pure.
+    int transfer_fee_for(const Player& p, int current_year) const;
+
+    // Execute the MONEY side of a transfer: debit this (buyer) by fee_k, credit
+    // `seller` (may be null for a free agent), and mirror a TransferRecord onto
+    // both clubs' transfer_log_. The caller does release_player + sign_player —
+    // this only moves cash + records (never-free safe). Bumps net_transfer_k.
+    void pay_transfer_fee(const TeamPtr& seller, const Player& p,
+                          int current_year, int fee_k);
+
+    // Can this club RESPONSIBLY add `wage_k` of new annual wage plus a `fee_k`
+    // one-off, without breaching its wage envelope or the insolvency floors?
+    // Always true for a club with a healthy envelope; the AI signing paths gate
+    // on this so teams plan their future finances instead of spending to zero.
+    bool within_wage_envelope(int wage_k, int fee_k) const;
+
+    // === User Make-Offer support (Group D) ===============================
+    // This club's asking price (a transfer-fee threshold) to part with one of
+    // its OWN players `p`: the market fee scaled by the player's importance to
+    // THIS roster (a protected top-2 core costs a big premium; bench depth is
+    // cheap), the club's Strategy (a TalentFarm flips talent; a Contender guards
+    // its core), and cash need. Pure. A bid >= this is accepted by will_sell.
+    int  sell_threshold_k(const Player& p, int current_year) const;
+    bool will_sell(const Player& p, int offered_fee_k, int current_year) const;
+
+    // Bucket this org rich<->poor from cash + income. Drives the spend fork +
+    // the finance-UI wealth badge. Recomputed each year-end.
+    WealthTier compute_wealth_tier() const;
+
+    // Strategy + wealth driven offseason SPEND behavior (Workstream A4): a rich
+    // Contender BUYS proven upgrades (paying fees); a poor Rebuilder banks cash,
+    // develops youth, and SELLS surplus risers. Falls back to ai_full_offseason_pass.
+    void run_spend_fork(std::vector<PlayerPtr>& free_agents, int current_year,
+                        std::vector<std::string>& log);
 
     // Extend an existing rostered player's contract in-place. Replaces their
     // current contract fields without going through release+sign (which would
@@ -436,6 +674,21 @@ public:
     // belt-and-braces.
     void record_trophy(int year, const std::string& event_name);
 
+    // Append a FINALS APPEARANCE (champion OR runner-up reached the grand final)
+    // to this team's history. Idempotent on (year, event_name) like
+    // record_trophy, but does NOT bump titles_with_org (reaching a final isn't
+    // winning it). Populating finals_history_ unlocks the previously-dead
+    // ChampionEra / Contender branches of dynasty_tier().
+    void record_finals_appearance(int year, const std::string& event_name);
+
+    // How many trophies this club won in a given game year (reads trophy_history_).
+    // Used by the coach market to evolve coach reputation from real silverware.
+    int titles_in_year(int yr) const {
+        int n = 0;
+        for (const auto& tp : trophy_history_) if (tp.first == yr) ++n;
+        return n;
+    }
+
     enum class DynastyTier : std::uint8_t { None, Contender, ChampionEra, Dynasty };
     // Classifies a team's recent dominance in the trailing 5-year window
     // [current_year - 4, current_year]:
@@ -464,6 +717,12 @@ const char* team_strategy_blurb(Team::Strategy s) noexcept;
 // average roster age, coach personality, and prestige. Called at world
 // init and again at each year-end so teams adapt to roster changes.
 Team::Strategy classify_team_strategy(const Team& t) noexcept;
+
+// WS-B: derive a club's TeamIdentity from its read-only state (personality,
+// comp identity, head-coach archetype, coach-lean, roster shape, region,
+// strategy, dynasty tier). Pure + rng-free — the single derivation point,
+// recomputed at world-init and each year-end like the strategy.
+TeamIdentity compute_team_identity(const Team& t);
 
 // === Strategy Inertia =====================================================
 //

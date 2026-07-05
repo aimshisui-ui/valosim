@@ -2,8 +2,11 @@
 
 namespace vlr {
 
-League::League(std::string n, std::vector<TeamPtr> ts)
-    : name_(std::move(n)), teams_(std::move(ts)) {}
+League::League(std::string n, std::vector<TeamPtr> ts,
+               std::string region, int tier, std::string division_name)
+    : name_(std::move(n)), teams_(std::move(ts)),
+      region_(std::move(region)), tier_(tier),
+      division_name_(std::move(division_name)) {}
 
 void League::generate_schedule() {
     weekly_matchups_.clear();

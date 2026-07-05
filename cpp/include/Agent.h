@@ -76,6 +76,16 @@ const MapCompPreference& map_pref(const std::string& map_name);
 // flavour. Hand-curated by name inside Agent.cpp.
 double agent_flavor_fit(const Agent& a, const MapCompPreference& pref);
 
+// Per-map SIGNATURE agents — the 2-3 agents that are meta-near-mandatory on a
+// map (Viper on Breeze/Icebox, Killjoy/Cypher on lockdown maps, Sova on recon
+// maps, ...). Unlike map_pref (a role/flavour bias), this names SPECIFIC agents
+// a map demands, so the per-map picker prefers them and a forced off-role flex
+// targets the agent the map actually needs. Hand-curated in Agent.cpp; an empty
+// list for an unknown map. is_map_signature_agent is the cheap hot-path check.
+const std::vector<std::string>& map_signature_agents(const std::string& map_name);
+bool is_map_signature_agent(const std::string& agent_name,
+                            const std::string& map_name);
+
 // Per-map result snapshot used by Series for in-series adaptation.
 // Kept in Agent.h (instead of Series.h) so it can be passed by-pointer
 // into Team::build_round_selection without dragging Series.h around.

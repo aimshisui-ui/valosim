@@ -3,7 +3,9 @@
 // Behaves like a Steam game shortcut: when double-clicked it walks the
 // project, sees if any source file changed since the last build, runs
 // build.bat if needed (showing a console with progress so failures are
-// visible), then launches vlrgui.exe.
+// visible), then launches the game. The WEB UI (vlrweb.exe) is now the
+// PRIMARY frontend; it falls back to the legacy ImGui build (vlrgui.exe)
+// only if vlrweb.exe is somehow absent.
 //
 // If launched from outside the project tree (e.g. a Desktop shortcut), it
 // scans up to ~5 parent directories looking for build.bat / src / include
@@ -120,24 +122,27 @@ void launch_game(const fs::path& exe) {
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     fs::path root = find_project_root();
 
-    // Standalone fallback: a sibling vlrgui.exe with no source tree.
+    // Standalone fallback: a sibling vlrweb.exe (preferred) or vlrgui.exe with
+    // no source tree.
     if (root.empty()) {
         char exepath[MAX_PATH];
         GetModuleFileNameA(nullptr, exepath, MAX_PATH);
-        fs::path sibling = fs::path(exepath).parent_path() / "vlrgui.exe";
-        if (fs::exists(sibling)) {
-            launch_game(sibling);
-            return 0;
-        }
+        fs::path dir = fs::path(exepath).parent_path();
+        fs::path web = dir / "vlrweb.exe";
+        fs::path gui = dir / "vlrgui.exe";
+        if (fs::exists(web)) { launch_game(web); return 0; }
+        if (fs::exists(gui)) { launch_game(gui); return 0; }
         MessageBoxA(nullptr,
             "Could not find the project source.\n\n"
-            "Place Play.exe inside the cpp/ folder, or next to vlrgui.exe.",
+            "Place Play.exe inside the cpp/ folder, or next to vlrweb.exe.",
             "VLR Manager", MB_OK | MB_ICONERROR);
         return 1;
     }
 
-    fs::path exe = root / "build" / "vlrgui.exe";
-    bool need_build = any_source_newer(root, exe);
+    // The web UI is the primary target; build freshness is gauged against it.
+    fs::path web = root / "build" / "vlrweb.exe";
+    fs::path gui = root / "build" / "vlrgui.exe";
+    bool need_build = any_source_newer(root, web);
 
     if (need_build) {
         // Quick toast so users with a slow build don't think nothing happened.
@@ -153,9 +158,11 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         }
     }
 
+    // Prefer vlrweb.exe (the primary UI); fall back to the legacy vlrgui.exe.
+    fs::path exe = fs::exists(web) ? web : gui;
     if (!fs::exists(exe)) {
         MessageBoxA(nullptr,
-            "Build succeeded but vlrgui.exe is missing.",
+            "Build succeeded but neither vlrweb.exe nor vlrgui.exe was found.",
             "VLR Manager", MB_OK | MB_ICONERROR);
         return 1;
     }

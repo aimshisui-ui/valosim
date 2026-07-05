@@ -44,6 +44,8 @@ class Coach {
 public:
     Coach(std::string name, std::string region);
 
+    std::uint64_t id = 0;   // stable, unique id (stamped in ctor; save handle)
+
     std::string name;
     std::string region;
     std::string country;        // English country name
@@ -67,8 +69,19 @@ public:
 
     CoachPersonality personality = CoachPersonality::Pragmatist;
 
+    // === FM-depth coach identity ==========================================
+    // Reputation (1..99): a coach's MARKET STANDING, distinct from org prestige.
+    // Rises with titles + winning + developing talent; decays slowly. Drives
+    // salary demands (requested_salary_k) and the coach market — rich orgs poach
+    // high-rep coaches, poor orgs settle for cheaper up-and-comers.
+    int reputation     = 50;
+    int career_titles  = 0;
+    int career_seasons = 0;
+    int career_coty    = 0;   // WS-B: Coach of the Year trophies won
+
     double match_synergy_mult() const noexcept;
     double dev_chance_mult() const noexcept;
+    double dev_growth_factor() const noexcept;   // WS-B INC-3 dev-pass base
     int    requested_salary_k() const noexcept;
 };
 

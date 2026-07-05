@@ -32,6 +32,17 @@ namespace vlr {
 
 namespace {
 
+// WS-C R3: RoundEndKind -> stable JSON string (schema v2 round_history).
+inline const char* round_end_kind_str(RoundEndKind k) {
+    switch (k) {
+        case RoundEndKind::SpikeDetonation: return "spike_detonation";
+        case RoundEndKind::Defuse:          return "defuse";
+        case RoundEndKind::TimeExpiry:      return "time_expiry";
+        case RoundEndKind::Elimination:
+        default:                            return "elimination";
+    }
+}
+
 // =============================================================
 // Tiny output-only JSON writer.
 // =============================================================
@@ -512,19 +523,42 @@ std::string export_series_to_json(
     else if (team2_maps_won > team1_maps_won) winner = "team2";
     else winner = "tied";  // valid for BO2
 
+    // ---- Infer the true best_of from the result ----
+    // The caller can only pass the PLAYED map count (the configured Series
+    // best_of is not retained in the live viewer / replay path), so a BO5 won
+    // 3-0 arrives here as best_of==3 and would mislabel as "BO3". For a
+    // completed best-of-odd series the winner's map count IS the clinch
+    // number, so best_of = clinch*2 - 1 is exact: 3-0/3-1/3-2 -> 5, 2-0/2-1
+    // -> 3, 1-0 -> 1. Only apply when a side actually clinched; otherwise
+    // (BO2 / tie / partial data) fall back to the value the caller supplied.
+    int effective_best_of = best_of;
+    {
+        int winner_maps = std::max(team1_maps_won, team2_maps_won);
+        int maps_played = team1_maps_won + team2_maps_won;
+        int inferred    = winner_maps * 2 - 1;
+        // Never up-convert a 2-map series: a real BO2 (group stage) that ends
+        // 2-0 would otherwise infer to BO3 (winner_maps*2-1 = 3 >= 2). Keep
+        // the caller-supplied best_of for 2-map series.
+        if (winner_maps > 0 && inferred >= maps_played && maps_played != 2) {
+            effective_best_of = inferred;
+        }
+    }
+
     // ---- Build the JSON ----
     JsonWriter jw;
     jw.obj_open();
-    jw.kv_int ("schema_version", 1);
+    jw.kv_int ("schema_version", 2);
     jw.kv_str ("exporter",       "VLR Manager Valosim");
     jw.kv_str ("exporter_notes",
                "rating is VLR-style; ACS estimated from rating+ADR; "
-               "utility_impact not tracked");
+               "utility_impact not tracked. v2 adds per-map round_history "
+               "(round-by-round winner/score/economy + spike/defuse end_kind, "
+               "a deterministic narrative layer).");
     jw.kv_str ("match_id", make_match_id(event_name, year, day_in_year,
-                                         team1_name, team2_name, best_of));
+                                         team1_name, team2_name, effective_best_of));
     jw.kv_str ("event",       event_name);
-    jw.kv_str ("series_type", series_type_name(best_of));
-    jw.kv_int ("best_of",     best_of);
+    jw.kv_str ("series_type", series_type_name(effective_best_of));
+    jw.kv_int ("best_of",     effective_best_of);
 
     jw.key("exported");
     jw.obj_open();
@@ -622,6 +656,41 @@ std::string export_series_to_json(
             jw.key("team2"); jw.arr_open(); jw.arr_close();
         }
         jw.obj_close();   // players
+
+        // ---- WS-C R3: per-round history (schema v2) ----
+        // Read-only serialization of the deterministic R1 round metadata; runs
+        // post-match and never feeds the sim. Normalized to the EXPORT's
+        // team1/team2 (blue_is_team1), independent of the match's internal sides.
+        if (rec->round_history && !rec->round_history->empty()) {
+            jw.key("round_history");
+            jw.arr_open();
+            for (const RoundLog& rl : *rec->round_history) {
+                bool exp_t1_atk = blue_is_team1 ? rl.t1_attacking : !rl.t1_attacking;
+                int  r_t1  = blue_is_team1 ? rl.t1_score  : rl.t2_score;
+                int  r_t2  = blue_is_team1 ? rl.t2_score  : rl.t1_score;
+                int  inv1  = blue_is_team1 ? rl.t1_invest : rl.t2_invest;
+                int  inv2  = blue_is_team1 ? rl.t2_invest : rl.t1_invest;
+                jw.obj_open();
+                jw.kv_int ("round",          rl.round);
+                jw.kv_str ("winner",         rl.winner_name == team1_name ? "team1" : "team2");
+                jw.kv_str ("end_kind",       round_end_kind_str(rl.end_kind));
+                jw.kv_bool("spike_planted",  rl.spike_planted);
+                jw.kv_bool("was_retake",     rl.was_retake);
+                jw.kv_str ("attacking_side", exp_t1_atk ? "team1" : "team2");
+                jw.key("score");
+                jw.obj_open();
+                jw.kv_int("team1", r_t1);
+                jw.kv_int("team2", r_t2);
+                jw.obj_close();
+                jw.key("economy");
+                jw.obj_open();
+                jw.kv_int("team1_invest", inv1);
+                jw.kv_int("team2_invest", inv2);
+                jw.obj_close();
+                jw.obj_close();
+            }
+            jw.arr_close();
+        }
 
         jw.obj_close();   // map entry
     }

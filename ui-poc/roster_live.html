@@ -1,0 +1,1520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Valosim — Squad (Web POC)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg-0:#0B0D12; --bg-1:#171A24; --bg-2:#1C202C; --bg-3:#242938;
+  --hairline:#2A2F3D; --border-strong:#3A4152;
+  --hi-inset:inset 0 1px 0 rgba(233,236,241,.05);
+  --fg:#E9ECF1; --fg-muted:#8B93A3; --fg-ghost:#7C8499;
+  --red:#FF4655; --red-tint:rgba(255,70,85,.10); --red-glow:0 0 16px rgba(255,70,85,.35);
+  --green:#3FD17A; --amber:#D4A14C; --blue:#00D4FF; --purple:#7B5EFF; --gold:#FFD700;
+  --r-duelist:#FF4655; --r-initiator:#00D4FF; --r-controller:#7B5EFF; --r-sentinel:#3FD17A;
+  --club:#FF4655;
+  --r-card:10px; --r-tile:8px; --r-pill:999px; --bevel:12px;
+  --font-display:"Space Grotesk",system-ui,sans-serif;
+  --font-ui:"Inter",system-ui,sans-serif;
+  --font-num:"IBM Plex Mono",ui-monospace,monospace;
+  --ease:cubic-bezier(.2,.8,.2,1); --t-fast:140ms; --t-mid:220ms;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+html{overflow-x:auto;overflow-y:hidden}
+body{
+  width:100vw; min-width:1240px; height:100vh; overflow:hidden;
+  background:
+    radial-gradient(1200px 600px at 60% -10%, rgba(255,70,85,.05), transparent 60%),
+    radial-gradient(900px 500px at 100% 110%, rgba(123,94,255,.04), transparent 60%),
+    var(--bg-0);
+  color:var(--fg); font-family:var(--font-ui);
+  display:grid; grid-template-columns:72px 1fr;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.bevel-tr{clip-path:polygon(0 0,calc(100% - var(--bevel)) 0,100% var(--bevel),100% 100%,0 100%)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* nav rail */
+.nav{background:var(--bg-0);border-right:1px solid var(--hairline);display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:6px}
+.nav .crest{width:40px;height:40px;border-radius:11px;background:var(--bg-3);border:1px solid var(--border-strong);display:grid;place-items:center;font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--fg);position:relative;margin-bottom:14px}
+.nav .crest::after{content:"";position:absolute;bottom:-7px;left:8px;right:8px;height:2px;background:var(--club);border-radius:2px}
+.nav button{width:44px;height:44px;border:0;background:transparent;border-radius:10px;color:var(--fg-muted);display:grid;place-items:center;cursor:pointer;position:relative;transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+.nav button:hover{color:var(--fg);background:var(--bg-1)}
+.nav button.active{color:var(--fg)}
+.nav button.active::before{content:"";position:absolute;left:-14px;top:11px;bottom:11px;width:3px;border-radius:0 3px 3px 0;background:var(--red);box-shadow:0 0 10px rgba(255,70,85,.5)}
+.nav .spacer{flex:1}
+.nav svg{width:22px;height:22px;stroke:currentColor;stroke-width:1.75;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* content shell */
+.content{padding:18px 28px 20px;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.preempty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--fg-muted);font-size:15px;text-align:center;padding:40px}
+
+/* header */
+.header{position:relative;height:74px;background:var(--bg-1);border:1px solid var(--hairline);box-shadow:var(--hi-inset);border-radius:var(--r-card);padding:0 22px;display:flex;align-items:center;gap:18px;overflow:hidden}
+.header::before{content:"";position:absolute;top:0;left:0;height:2px;width:30%;background:linear-gradient(90deg,transparent,var(--red),transparent);animation:sweep 6s linear infinite}
+.header .wash{position:absolute;top:0;left:0;width:200px;height:100%;background:linear-gradient(90deg,color-mix(in srgb,var(--club) 14%,transparent),transparent);pointer-events:none}
+.header .hcrest{width:50px;height:50px;border-radius:13px;background:var(--bg-3);border:1px solid var(--border-strong);display:grid;place-items:center;font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--fg);z-index:1;flex:none}
+.header .htitle{z-index:1}
+.header .hname{font-family:var(--font-display);font-weight:700;font-size:25px;letter-spacing:-.02em;line-height:1.05}
+.header .hmeta{display:flex;gap:7px;margin-top:7px}
+.plate{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted);background:var(--bg-2);border:1px solid var(--hairline);padding:4px 9px;clip-path:polygon(6px 0,100% 0,100% 100%,0 100%,0 6px)}
+.plate.div{color:#ffb3ba;background:rgba(255,70,85,.10);border-color:rgba(255,70,85,.30)}
+.header .hclock{margin-left:auto;text-align:right;z-index:1;display:flex;gap:22px}
+.header .hclock .lab{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--fg-ghost);text-transform:uppercase}
+.header .hclock .val{font-family:var(--font-num);font-size:18px;color:var(--fg);margin-top:3px}
+
+/* KPI strip */
+.kpis{display:flex;gap:12px;margin-top:14px}
+.kpi{flex:1;background:var(--bg-1);border:1px solid var(--hairline);box-shadow:var(--hi-inset);border-radius:var(--r-tile);padding:12px 15px 0;height:84px;position:relative;overflow:hidden}
+.kpi .klab{font-size:10px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--fg-muted)}
+.kpi .kval{font-family:var(--font-num);font-weight:600;font-size:26px;line-height:1;margin-top:9px;color:var(--fg)}
+.kpi .ksub{font-size:10px;color:var(--fg-muted);margin-top:5px}
+.kpi .kbar{position:absolute;left:0;bottom:0;height:4px;width:38%;border-radius:0 2px 0 0;background:var(--accent,var(--amber));transition:width 200ms var(--ease)}
+.kpi:hover .kbar{width:100%}
+
+/* layout grid */
+.grid{display:grid;grid-template-columns:7fr 5fr;gap:16px;margin-top:16px;flex:1;min-height:0}
+.col{display:flex;flex-direction:column;gap:14px;min-height:0}
+.card{background:var(--bg-1);border:1px solid var(--hairline);box-shadow:var(--hi-inset);border-radius:var(--r-card);padding:14px 16px;display:flex;flex-direction:column;min-height:0;clip-path:polygon(var(--bevel) 0,100% 0,100% 100%,0 100%,0 var(--bevel))}
+.chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.chead .t{font-family:var(--font-display);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted)}
+.chead .s{font-family:var(--font-num);font-size:11.5px;color:var(--fg-muted)}
+.cbody{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+.cbody::-webkit-scrollbar{width:6px}.cbody::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:3px}
+.empty{color:var(--fg-muted);font-size:12px;padding:10px 2px}
+
+/* roster table */
+.rhead,.rrow{display:grid;grid-template-columns:46px 1fr 34px 40px 56px 46px 46px 86px;gap:7px;align-items:center;padding:0 8px}
+.rhead{height:26px;font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-muted);position:sticky;top:0;background:var(--bg-1);z-index:2}
+.rhead span:nth-child(n+3){text-align:right}
+.rsub{font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-ghost);padding:10px 8px 4px;border-top:1px solid var(--hairline);margin-top:4px}
+.rrow{height:42px;border-top:1px solid var(--hairline);cursor:pointer;position:relative;transition:background var(--t-fast) var(--ease)}
+.rrow:hover{background:var(--bg-2)}
+.rrow.sel{background:color-mix(in srgb,var(--club) 12%,transparent)}
+.rrow.sel::before{content:"";position:absolute;left:-16px;top:0;bottom:0;width:3px;background:var(--club)}
+.rrole{font-family:var(--font-num);font-size:9px;font-weight:600;letter-spacing:.05em;padding:3px 5px;clip-path:polygon(3px 0,100% 0,100% 100%,0 100%,0 3px);justify-self:start}
+.rname{display:flex;align-items:center;gap:7px;min-width:0}
+.rname .nm{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rbadge{font-size:8px;font-weight:700;letter-spacing:.05em;padding:1px 4px;border-radius:4px;flex:none}
+.rbadge.igl{color:var(--amber);border:1px solid rgba(212,161,76,.45)}
+.rbadge.flex{color:var(--blue);border:1px solid rgba(0,212,255,.4)}
+.rbadge.out{color:#ff8a94;background:rgba(255,70,85,.14);border:1px solid rgba(255,70,85,.45)}
+.rcell{font-family:var(--font-num);font-size:13px;text-align:right;color:var(--fg)}
+.rcell.dim{color:var(--fg-muted)}
+.rpot{font-family:var(--font-num);font-size:13px;text-align:right}
+.rpot .g{font-size:10px;color:var(--green);margin-left:3px}
+.rcontract{font-family:var(--font-num);font-size:11px;text-align:right;color:var(--fg-muted)}
+
+/* player detail */
+.pd{display:flex;flex-direction:column;gap:13px}
+.pdhead{display:flex;align-items:flex-start;gap:13px}
+.pdid{min-width:0;flex:1}
+.pdname{font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:-.01em;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pdid{min-width:0}
+.pdsub{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-muted)}
+.pdsub .dot{width:3px;height:3px;border-radius:50%;background:var(--fg-ghost)}
+.tchip{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:var(--r-pill);border:1px solid var(--border-strong);color:var(--fg-muted)}
+.pdovr{display:flex;gap:9px;flex:none}
+.ovrbox{width:62px;text-align:center;background:var(--bg-2);border:1px solid var(--hairline);border-radius:9px;padding:8px 0}
+.ovrbox .v{font-family:var(--font-num);font-weight:600;font-size:24px;line-height:1}
+.ovrbox .l{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-ghost);margin-top:3px}
+.seclab{font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-ghost);margin:2px 0 7px}
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:7px}
+.stat{background:var(--bg-2);border:1px solid var(--hairline);border-radius:7px;padding:7px 4px;text-align:center}
+.stat .v{font-family:var(--font-num);font-weight:600;font-size:14px;line-height:1}
+.stat .l{font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-ghost);margin-top:4px}
+.season{font-size:11px;color:var(--fg-muted);margin-top:8px}
+.season b{color:var(--fg);font-family:var(--font-num);font-weight:600}
+.attrs{display:grid;grid-template-columns:1fr 1fr;gap:5px 18px}
+.attr{display:flex;align-items:center;gap:8px}
+.attr .an{font-size:10.5px;color:var(--fg-muted);width:112px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize}
+.attr .ab{flex:1;height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden}
+.attr .af{height:100%;border-radius:3px;min-width:2px}
+.attr .av{font-family:var(--font-num);font-size:11px;width:20px;text-align:right;color:var(--fg)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.achip{font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:var(--r-pill);background:var(--bg-2);border:1px solid var(--hairline);color:var(--fg);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.achip.sig{border-color:rgba(255,215,0,.5);color:var(--gold);box-shadow:0 0 0 1px rgba(255,215,0,.12)}
+.persona{display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;margin-top:2px}
+.pbar{display:flex;align-items:center;gap:8px}
+.pbar .pn{font-size:10.5px;color:var(--fg-muted);width:70px;text-transform:capitalize}
+.pbar .pt{flex:1;height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden}
+.pbar .pf{height:100%;border-radius:3px;background:var(--purple)}
+.pbar .pv{font-family:var(--font-num);font-size:11px;width:20px;text-align:right}
+.contract-row{display:flex;gap:8px}
+.cbox{flex:1;background:var(--bg-2);border:1px solid var(--hairline);border-radius:7px;padding:8px;text-align:center}
+.cbox .v{font-family:var(--font-num);font-weight:600;font-size:14px}
+.cbox .l{font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-ghost);margin-top:4px}
+.trophies{display:flex;gap:14px;font-size:11px;color:var(--fg-muted);margin-bottom:6px}
+.trophies b{font-family:var(--font-num);color:var(--gold);font-size:14px}
+.titlelist{font-size:11px;color:var(--fg-muted);line-height:1.5}
+
+/* staff + chemistry strip */
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;height:172px;margin-top:14px;flex:none}
+.scard{background:var(--bg-1);border:1px solid var(--hairline);box-shadow:var(--hi-inset);border-radius:var(--r-card);padding:12px 14px;display:flex;flex-direction:column;min-height:0}
+.scard .role{font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-ghost)}
+.scard .sn{font-family:var(--font-display);font-weight:600;font-size:15px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
+.scard .role,.scard .sp{flex:none}
+.scard .sp{font-size:10.5px;color:var(--amber);margin-top:1px}
+.scard .sbars{margin-top:9px;display:flex;flex-direction:column;gap:5px;flex:1}
+.scard .sfoot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--hairline);font-size:10.5px;color:var(--fg-muted)}
+.scard .sfoot .sal{font-family:var(--font-num);color:var(--fg)}
+.chemrow{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:4px 0}
+.chemrow .pair{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+.chemrow .cv{font-family:var(--font-num);font-weight:600;flex:none}
+
+/* entrance */
+.enter{opacity:0;transform:translateY(8px)}
+.enter.in{opacity:1;transform:none;transition:opacity 320ms var(--ease),transform 320ms var(--ease)}
+@keyframes sweep{0%{left:-30%}100%{left:130%}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<script>window.ROSTER_DATA = {
+  "schema_version": 1,
+  "exporter": "VLR Manager Valosim",
+  "club_color": "#2F40D8",
+  "roster": {
+    "header": {
+      "club_name": "Mirage",
+      "tag": "MIR",
+      "division": "VCT",
+      "region": "Americas",
+      "year": 2026,
+      "day_in_year": 14,
+      "current_phase": "Stage 1"
+    },
+    "kpis": [
+      {
+        "label": "ROSTER OVR",
+        "value": "57",
+        "tone": "crit"
+      },
+      {
+        "label": "PAYROLL",
+        "value": "$835K",
+        "tone": "info",
+        "subline": "per year"
+      },
+      {
+        "label": "WAGE BUDGET",
+        "value": "$0",
+        "tone": "warn",
+        "subline": "to spend"
+      },
+      {
+        "label": "AVG AGE",
+        "value": "21.4",
+        "tone": "pos"
+      },
+      {
+        "label": "CHEMISTRY",
+        "value": "49",
+        "tone": "info"
+      },
+      {
+        "label": "WINDOW",
+        "value": "OPENING",
+        "tone": "info",
+        "subline": "Building"
+      }
+    ],
+    "team": {
+      "ovr": 56.8,
+      "prestige": 65,
+      "brand": "Academy Powerhouse",
+      "wealth_tier": "Stable",
+      "window": "OPENING",
+      "payroll_k": 835,
+      "wage_envelope_k": 0,
+      "committed_payroll_k": 0,
+      "sponsorship_k": 800,
+      "net_transfer_k": 0,
+      "size": 5,
+      "avg_age": 21.4,
+      "chemistry_index": 49
+    },
+    "players": [
+      {
+        "slot": "starter",
+        "idx": 0,
+        "name": "hazeka",
+        "role": "Duelist",
+        "contract_role": "Duelist",
+        "age": 21,
+        "country": "Chile",
+        "country_iso": "cl",
+        "region": "Americas",
+        "ovr": 61,
+        "potential": 89,
+        "growth": 28,
+        "trajectory": "Established",
+        "avg_rating": 1.00,
+        "kd": 1.06,
+        "season_matches": 13,
+        "season_avg_rating": 1.00,
+        "season_kd": 1.06,
+        "igl": false,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 46,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 2,
+          "salary_k": 93,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Jett",
+        "agent_pool_size": 5,
+        "agent_pool": [
+          {
+            "name": "Jett",
+            "role": "Duelist"
+          },
+          {
+            "name": "Chamber",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Phoenix",
+            "role": "Duelist"
+          },
+          {
+            "name": "Iso",
+            "role": "Duelist"
+          }
+        ],
+        "personality": {
+          "ambition": 70,
+          "loyalty": 69,
+          "greed": 59,
+          "ego": 42,
+          "desire": "Mercenary"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 63
+          },
+          {
+            "name": "headshot",
+            "value": 73
+          },
+          {
+            "name": "entry",
+            "value": 64
+          },
+          {
+            "name": "utility",
+            "value": 55
+          },
+          {
+            "name": "game_sense",
+            "value": 60
+          },
+          {
+            "name": "clutch",
+            "value": 66
+          },
+          {
+            "name": "decision_making",
+            "value": 62
+          },
+          {
+            "name": "intelligence",
+            "value": 64
+          },
+          {
+            "name": "aggressiveness",
+            "value": 72
+          },
+          {
+            "name": "positioning",
+            "value": 57
+          },
+          {
+            "name": "communication",
+            "value": 71
+          },
+          {
+            "name": "adaptability",
+            "value": 64
+          },
+          {
+            "name": "leadership",
+            "value": 72
+          },
+          {
+            "name": "reaction",
+            "value": 69
+          },
+          {
+            "name": "spike_handle",
+            "value": 54
+          },
+          {
+            "name": "anchor",
+            "value": 63
+          },
+          {
+            "name": "movement",
+            "value": 62
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 57
+          },
+          {
+            "name": "lurking",
+            "value": 68
+          },
+          {
+            "name": "awping",
+            "value": 48
+          },
+          {
+            "name": "stamina",
+            "value": 56
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 56
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 72
+          },
+          {
+            "name": "anti_strat",
+            "value": 56
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 249,
+          "deaths": 236,
+          "assists": 3,
+          "kd": 1.06,
+          "adr": 192,
+          "hs_pct": 35,
+          "kast_pct": 53,
+          "entry_pct": 54,
+          "avg_rating": 1.00
+        },
+        "solo": {
+          "mmr": 1405,
+          "peak_mmr": 1405,
+          "kd": 1.39,
+          "wins": 13,
+          "losses": 9
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 1,
+        "name": "WhiskEdge",
+        "role": "Duelist",
+        "contract_role": "Duelist",
+        "age": 22,
+        "country": "USA",
+        "country_iso": "us",
+        "region": "Americas",
+        "ovr": 63,
+        "potential": 77,
+        "growth": 14,
+        "trajectory": "Established",
+        "avg_rating": 0.98,
+        "kd": 1.05,
+        "season_matches": 13,
+        "season_avg_rating": 0.98,
+        "season_kd": 1.05,
+        "igl": false,
+        "flex": true,
+        "transfer_requested": false,
+        "mood": 45,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 4,
+          "salary_k": 75,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Yoru",
+        "agent_pool_size": 6,
+        "agent_pool": [
+          {
+            "name": "Yoru",
+            "role": "Duelist"
+          },
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Brimstone",
+            "role": "Controller"
+          },
+          {
+            "name": "Raze",
+            "role": "Duelist"
+          },
+          {
+            "name": "Waylay",
+            "role": "Duelist"
+          },
+          {
+            "name": "Sova",
+            "role": "Initiator"
+          }
+        ],
+        "personality": {
+          "ambition": 79,
+          "loyalty": 68,
+          "greed": 32,
+          "ego": 68,
+          "desire": "Competitor"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 53
+          },
+          {
+            "name": "headshot",
+            "value": 52
+          },
+          {
+            "name": "entry",
+            "value": 66
+          },
+          {
+            "name": "utility",
+            "value": 65
+          },
+          {
+            "name": "game_sense",
+            "value": 73
+          },
+          {
+            "name": "clutch",
+            "value": 64
+          },
+          {
+            "name": "decision_making",
+            "value": 73
+          },
+          {
+            "name": "intelligence",
+            "value": 81
+          },
+          {
+            "name": "aggressiveness",
+            "value": 57
+          },
+          {
+            "name": "positioning",
+            "value": 59
+          },
+          {
+            "name": "communication",
+            "value": 59
+          },
+          {
+            "name": "adaptability",
+            "value": 59
+          },
+          {
+            "name": "leadership",
+            "value": 58
+          },
+          {
+            "name": "reaction",
+            "value": 60
+          },
+          {
+            "name": "spike_handle",
+            "value": 54
+          },
+          {
+            "name": "anchor",
+            "value": 55
+          },
+          {
+            "name": "movement",
+            "value": 68
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 68
+          },
+          {
+            "name": "lurking",
+            "value": 74
+          },
+          {
+            "name": "awping",
+            "value": 79
+          },
+          {
+            "name": "stamina",
+            "value": 61
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 78
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 79
+          },
+          {
+            "name": "anti_strat",
+            "value": 70
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 231,
+          "deaths": 220,
+          "assists": 7,
+          "kd": 1.05,
+          "adr": 178,
+          "hs_pct": 32,
+          "kast_pct": 52,
+          "entry_pct": 51,
+          "avg_rating": 0.98
+        },
+        "solo": {
+          "mmr": 1304,
+          "peak_mmr": 1304,
+          "kd": 1.36,
+          "wins": 9,
+          "losses": 11
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 2,
+        "name": "lush",
+        "role": "Controller",
+        "contract_role": "Controller",
+        "age": 22,
+        "country": "Canada",
+        "country_iso": "ca",
+        "region": "Americas",
+        "ovr": 56,
+        "potential": 68,
+        "growth": 12,
+        "trajectory": "Established",
+        "avg_rating": 0.86,
+        "kd": 0.84,
+        "season_matches": 13,
+        "season_avg_rating": 0.86,
+        "season_kd": 0.84,
+        "igl": false,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 44,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 4,
+          "salary_k": 54,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Viper",
+        "agent_pool_size": 4,
+        "agent_pool": [
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Vyse",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Cypher",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Brimstone",
+            "role": "Controller"
+          }
+        ],
+        "personality": {
+          "ambition": 49,
+          "loyalty": 64,
+          "greed": 67,
+          "ego": 59,
+          "desire": "Stability Seeker"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 56
+          },
+          {
+            "name": "headshot",
+            "value": 47
+          },
+          {
+            "name": "entry",
+            "value": 54
+          },
+          {
+            "name": "utility",
+            "value": 59
+          },
+          {
+            "name": "game_sense",
+            "value": 65
+          },
+          {
+            "name": "clutch",
+            "value": 54
+          },
+          {
+            "name": "decision_making",
+            "value": 66
+          },
+          {
+            "name": "intelligence",
+            "value": 61
+          },
+          {
+            "name": "aggressiveness",
+            "value": 48
+          },
+          {
+            "name": "positioning",
+            "value": 67
+          },
+          {
+            "name": "communication",
+            "value": 54
+          },
+          {
+            "name": "adaptability",
+            "value": 57
+          },
+          {
+            "name": "leadership",
+            "value": 59
+          },
+          {
+            "name": "reaction",
+            "value": 53
+          },
+          {
+            "name": "spike_handle",
+            "value": 62
+          },
+          {
+            "name": "anchor",
+            "value": 64
+          },
+          {
+            "name": "movement",
+            "value": 60
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 60
+          },
+          {
+            "name": "lurking",
+            "value": 64
+          },
+          {
+            "name": "awping",
+            "value": 65
+          },
+          {
+            "name": "stamina",
+            "value": 65
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 63
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 43
+          },
+          {
+            "name": "anti_strat",
+            "value": 54
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 181,
+          "deaths": 215,
+          "assists": 25,
+          "kd": 0.84,
+          "adr": 149,
+          "hs_pct": 25,
+          "kast_pct": 50,
+          "entry_pct": 50,
+          "avg_rating": 0.86
+        },
+        "solo": {
+          "mmr": 1324,
+          "peak_mmr": 1324,
+          "kd": 1.38,
+          "wins": 11,
+          "losses": 8
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 3,
+        "name": "CometPulse",
+        "role": "Sentinel",
+        "contract_role": "Sentinel",
+        "age": 20,
+        "country": "Brazil",
+        "country_iso": "br",
+        "region": "Americas",
+        "ovr": 53,
+        "potential": 66,
+        "growth": 13,
+        "trajectory": "Established",
+        "avg_rating": 1.08,
+        "kd": 1.04,
+        "season_matches": 13,
+        "season_avg_rating": 1.08,
+        "season_kd": 1.04,
+        "igl": false,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 49,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 4,
+          "salary_k": 28,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Killjoy",
+        "agent_pool_size": 5,
+        "agent_pool": [
+          {
+            "name": "Killjoy",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Astra",
+            "role": "Controller"
+          },
+          {
+            "name": "Harbor",
+            "role": "Controller"
+          },
+          {
+            "name": "Miks",
+            "role": "Controller"
+          },
+          {
+            "name": "Sage",
+            "role": "Sentinel"
+          }
+        ],
+        "personality": {
+          "ambition": 33,
+          "loyalty": 41,
+          "greed": 67,
+          "ego": 45,
+          "desire": "Stability Seeker"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 57
+          },
+          {
+            "name": "headshot",
+            "value": 52
+          },
+          {
+            "name": "entry",
+            "value": 61
+          },
+          {
+            "name": "utility",
+            "value": 60
+          },
+          {
+            "name": "game_sense",
+            "value": 60
+          },
+          {
+            "name": "clutch",
+            "value": 52
+          },
+          {
+            "name": "decision_making",
+            "value": 54
+          },
+          {
+            "name": "intelligence",
+            "value": 51
+          },
+          {
+            "name": "aggressiveness",
+            "value": 59
+          },
+          {
+            "name": "positioning",
+            "value": 53
+          },
+          {
+            "name": "communication",
+            "value": 49
+          },
+          {
+            "name": "adaptability",
+            "value": 64
+          },
+          {
+            "name": "leadership",
+            "value": 56
+          },
+          {
+            "name": "reaction",
+            "value": 56
+          },
+          {
+            "name": "spike_handle",
+            "value": 57
+          },
+          {
+            "name": "anchor",
+            "value": 70
+          },
+          {
+            "name": "movement",
+            "value": 52
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 56
+          },
+          {
+            "name": "lurking",
+            "value": 53
+          },
+          {
+            "name": "awping",
+            "value": 38
+          },
+          {
+            "name": "stamina",
+            "value": 57
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 63
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 50
+          },
+          {
+            "name": "anti_strat",
+            "value": 44
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 219,
+          "deaths": 211,
+          "assists": 19,
+          "kd": 1.04,
+          "adr": 169,
+          "hs_pct": 32,
+          "kast_pct": 56,
+          "entry_pct": 67,
+          "avg_rating": 1.08
+        },
+        "solo": {
+          "mmr": 1303,
+          "peak_mmr": 1310,
+          "kd": 1.44,
+          "wins": 9,
+          "losses": 14
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 4,
+        "name": "krypto",
+        "role": "Controller",
+        "contract_role": "Controller",
+        "age": 22,
+        "country": "USA",
+        "country_iso": "us",
+        "region": "Americas",
+        "ovr": 51,
+        "potential": 60,
+        "growth": 9,
+        "trajectory": "Established",
+        "avg_rating": 0.82,
+        "kd": 0.66,
+        "season_matches": 13,
+        "season_avg_rating": 0.82,
+        "season_kd": 0.66,
+        "igl": true,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 43,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 3,
+          "salary_k": 45,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Sova",
+        "agent_pool_size": 5,
+        "agent_pool": [
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Yoru",
+            "role": "Duelist"
+          },
+          {
+            "name": "Killjoy",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Astra",
+            "role": "Controller"
+          },
+          {
+            "name": "Brimstone",
+            "role": "Controller"
+          }
+        ],
+        "personality": {
+          "ambition": 34,
+          "loyalty": 69,
+          "greed": 55,
+          "ego": 49,
+          "desire": "Competitor"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 28
+          },
+          {
+            "name": "headshot",
+            "value": 29
+          },
+          {
+            "name": "entry",
+            "value": 31
+          },
+          {
+            "name": "utility",
+            "value": 47
+          },
+          {
+            "name": "game_sense",
+            "value": 57
+          },
+          {
+            "name": "clutch",
+            "value": 49
+          },
+          {
+            "name": "decision_making",
+            "value": 64
+          },
+          {
+            "name": "intelligence",
+            "value": 68
+          },
+          {
+            "name": "aggressiveness",
+            "value": 37
+          },
+          {
+            "name": "positioning",
+            "value": 50
+          },
+          {
+            "name": "communication",
+            "value": 58
+          },
+          {
+            "name": "adaptability",
+            "value": 40
+          },
+          {
+            "name": "leadership",
+            "value": 78
+          },
+          {
+            "name": "reaction",
+            "value": 51
+          },
+          {
+            "name": "spike_handle",
+            "value": 40
+          },
+          {
+            "name": "anchor",
+            "value": 56
+          },
+          {
+            "name": "movement",
+            "value": 50
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 43
+          },
+          {
+            "name": "lurking",
+            "value": 51
+          },
+          {
+            "name": "awping",
+            "value": 60
+          },
+          {
+            "name": "stamina",
+            "value": 47
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 79
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 76
+          },
+          {
+            "name": "anti_strat",
+            "value": 63
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 150,
+          "deaths": 228,
+          "assists": 54,
+          "kd": 0.66,
+          "adr": 125,
+          "hs_pct": 31,
+          "kast_pct": 53,
+          "entry_pct": 48,
+          "avg_rating": 0.82
+        },
+        "solo": {
+          "mmr": 1202,
+          "peak_mmr": 1202,
+          "kd": 1.03,
+          "wins": 9,
+          "losses": 11
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      }
+    ],
+    "chemistry": [
+      {
+        "a": "lush",
+        "b": "krypto",
+        "value": 0.03
+      },
+      {
+        "a": "lush",
+        "b": "WhiskEdge",
+        "value": -0.04
+      },
+      {
+        "a": "hazeka",
+        "b": "krypto",
+        "value": -0.04
+      },
+      {
+        "a": "hazeka",
+        "b": "WhiskEdge",
+        "value": -0.04
+      },
+      {
+        "a": "lush",
+        "b": "hazeka",
+        "value": -0.05
+      },
+      {
+        "a": "WhiskEdge",
+        "b": "krypto",
+        "value": -0.05
+      }
+    ],
+    "staff": {
+      "coach": {
+        "name": "Les Levesque",
+        "personality": "Veteran Mentor",
+        "tactical": 71,
+        "development": 79,
+        "leadership": 85,
+        "experience": 86,
+        "reputation": 40,
+        "career_titles": 0,
+        "career_seasons": 3,
+        "salary_k": 180
+      },
+      "scout": {
+        "name": "Todd Williams",
+        "personality": "Network Broker",
+        "judgement": 51,
+        "network": 99,
+        "projection": 70,
+        "experience": 56,
+        "reputation": 61,
+        "quality": 68,
+        "salary_k": 180
+      },
+      "analyst": {
+        "name": "Jon McCoy",
+        "personality": "Veteran Tactician",
+        "tactical_read": 74,
+        "opponent_insight": 67,
+        "prep": 61,
+        "experience": 91,
+        "reputation": 58,
+        "quality": 71,
+        "report_depth": 5,
+        "salary_k": 180
+      }
+    }
+  }
+}
+;</script>
+</head>
+<body>
+<nav class="nav" aria-label="Primary">
+  <div class="crest" id="navCrest">V</div>
+  <button title="Home" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></button>
+  <button class="active" aria-current="page" title="Squad" aria-label="Squad"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 6.2a3 3 0 0 1 0 5.6"/><path d="M18 14.5a5 5 0 0 1 2.5 5.5"/></svg></button>
+  <button title="Awards" aria-label="Awards"><svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="5"/><path d="m9 13-2 8 5-3 5 3-2-8"/></svg></button>
+  <button title="Competition" aria-label="Competition"><svg viewBox="0 0 24 24"><path d="M4 5h16M6 5v6a6 6 0 0 0 12 0V5"/><path d="M9 21h6M12 17v4"/></svg></button>
+  <button title="Finance" aria-label="Finance"><svg viewBox="0 0 24 24"><path d="M12 2v20M7 5h7a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h8"/></svg></button>
+  <button title="Inbox" aria-label="Inbox"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><path d="M3 7l9 6 9-6"/></svg></button>
+  <div class="spacer"></div>
+  <button title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></button>
+</nav>
+
+<main class="content" id="content">
+  <div class="header enter" id="header">
+    <div class="wash"></div>
+    <div class="hcrest" id="hcrest">M</div>
+    <div class="htitle"><div class="hname" id="clubName">—</div><div class="hmeta" id="hmeta"></div></div>
+    <div class="hclock">
+      <div><div class="lab">Squad</div><div class="val" id="hSize">—</div></div>
+      <div><div class="lab">Team OVR</div><div class="val" id="hOvr">—</div></div>
+    </div>
+  </div>
+
+  <div class="kpis enter" id="kpis"></div>
+
+  <div class="grid">
+    <div class="col">
+      <div class="card enter" id="cRoster" style="flex:1">
+        <div class="chead"><span class="t">Roster</span><span class="s" id="rStat"></span></div>
+        <div class="cbody" id="rosterBody"></div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card enter" id="cDetail" style="flex:1">
+        <div class="chead"><span class="t">Player Detail</span><span class="s" id="dStat"></span></div>
+        <div class="cbody" id="detailBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip enter" id="strip"></div>
+</main>
+
+<script>
+const RAW = window.ROSTER_DATA || null;
+const R = RAW && RAW.roster ? RAW.roster : null;
+const CLUB = (RAW && RAW.club_color) || "#FF4655";
+const reduced = matchMedia("(prefers-reduced-motion:reduce)").matches;
+const $ = (s,r=document)=>r.querySelector(s);
+const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const TONE={pos:"--green",info:"--blue",warn:"--amber",crit:"--red",neutral:"--fg-muted"};
+const ROLE={Duelist:["DUE","--r-duelist"],Initiator:["INI","--r-initiator"],Controller:["CON","--r-controller"],Sentinel:["SEN","--r-sentinel"]};
+const cssvar=v=>v && v.startsWith("--")?getComputedStyle(document.documentElement).getPropertyValue(v).trim():v;
+const lerp=(a,b,t)=>{const pa=parseInt(a.slice(1),16),pb=parseInt(b.slice(1),16);
+  const ra=pa>>16,ga=pa>>8&255,ba=pa&255,rb=pb>>16,gb=pb>>8&255,bb=pb&255;
+  return`rgb(${Math.round(ra+(rb-ra)*t)},${Math.round(ga+(gb-ga)*t)},${Math.round(ba+(bb-ba)*t)})`;};
+const ovrColor=o=>{const t=Math.max(0,Math.min(1,(o-55)/35));
+  return t<0.5?lerp("#8B93A3","#D4A14C",t/0.5):lerp("#D4A14C","#3FD17A",(t-0.5)/0.5);};
+const attrColor=v=>{const t=Math.max(0,Math.min(1,(v-40)/50));
+  return t<0.5?lerp("#5A6172","#D4A14C",t/0.5):lerp("#D4A14C","#3FD17A",(t-0.5)/0.5);};
+const fmtK=k=>{const a=Math.abs(k);const s=k<0?"-":"";return a>=1000?`${s}$${(a/1000).toFixed(a>=10000?0:1)}M`:`${s}$${a}K`;};
+
+document.documentElement.style.setProperty("--club",CLUB);
+
+if(!R || !R.header){
+  $("#content").innerHTML='<div class="preempty">No squad loaded — open via the app or inject a save export to populate the roster.</div>';
+  throw new Error("roster: no data");
+}
+
+/* ===== header ===== */
+const h=R.header, team=R.team||{};
+$("#clubName").textContent=h.club_name;
+const mono=(h.tag||h.club_name||"V").replace(/[^A-Za-z]/g,"").slice(0,1).toUpperCase()||"V";
+$("#hcrest").textContent=mono; $("#navCrest").textContent=mono;
+$("#hSize").textContent=(team.size!=null?team.size:(R.players||[]).length)+" players";
+$("#hOvr").textContent=(team.ovr!=null?(+team.ovr).toFixed(1):"—");
+[["div",h.division],["",h.region],["",`Year ${h.year}`],["",`Day ${h.day_in_year}/200`],["",h.current_phase],["",team.brand]]
+  .filter(([,tx])=>tx)
+  .forEach(([cl,tx])=>$("#hmeta").appendChild(el("span","plate "+cl,esc(tx))));
+
+/* ===== KPI strip ===== */
+const kc=$("#kpis");
+(R.kpis||[]).forEach(k=>{
+  const t=el("div","kpi bevel-tr");
+  t.style.setProperty("--accent",cssvar(TONE[k.tone]||"--amber"));
+  t.innerHTML=`<div class="klab">${esc(k.label)}</div><div class="kval">${esc(k.value)}</div>${k.subline?`<div class="ksub">${esc(k.subline)}</div>`:""}<div class="kbar"></div>`;
+  kc.appendChild(t);
+});
+
+/* ===== roster table ===== */
+const players=(R.players||[]).slice();
+const rb=$("#rosterBody");
+$("#rStat").textContent=`${players.length} · click a player`;
+rb.appendChild(el("div","rhead",`<span>ROLE</span><span>PLAYER</span><span>AGE</span><span>OVR</span><span>POT</span><span>RAT</span><span>K/D</span><span>CONTRACT</span>`));
+let benchShown=false;
+players.forEach((p,i)=>{
+  if(p.slot==="bench" && !benchShown){ rb.appendChild(el("div","rsub","Bench")); benchShown=true; }
+  const[rl,rc]=ROLE[p.role]||["?","--fg-muted"];
+  const badges=`${p.igl?'<span class="rbadge igl">IGL</span>':''}${p.flex?'<span class="rbadge flex">FLEX</span>':''}${p.transfer_requested?'<span class="rbadge out">WANTS OUT</span>':''}`;
+  const growth=p.growth>0?`<span class="g">+${p.growth}</span>`:'';
+  const yrs=p.contract?p.contract.years_left:0;
+  const sal=p.contract?fmtK(p.contract.salary_k):'';
+  const row=el("div","rrow"+(i===0?" sel":""));
+  row.dataset.idx=i;
+  row.innerHTML=`<span class="rrole" style="color:var(--fg);background:color-mix(in srgb,${cssvar(rc)} 18%,transparent);border:1px solid color-mix(in srgb,${cssvar(rc)} 45%,transparent)">${rl}</span>
+    <span class="rname"><span class="nm">${esc(p.name)}</span>${badges}</span>
+    <span class="rcell dim">${p.age}</span>
+    <span class="rcell" style="color:${ovrColor(p.ovr)}">${p.ovr}</span>
+    <span class="rpot"><span class="dim" style="color:var(--fg-muted)">${p.potential}</span>${growth}</span>
+    <span class="rcell" style="color:${p.avg_rating>=1.15?'var(--green)':(p.avg_rating<0.95?'#ff8a94':'var(--fg)')}">${(+p.avg_rating).toFixed(2)}</span>
+    <span class="rcell">${(+p.kd).toFixed(2)}</span>
+    <span class="rcontract">${yrs}y · ${sal}</span>`;
+  row.addEventListener("click",()=>selectPlayer(i));
+  rb.appendChild(row);
+});
+
+/* ===== player detail ===== */
+function selectPlayer(i){
+  const p=players[i]; if(!p) return;
+  document.querySelectorAll(".rrow").forEach(r=>r.classList.toggle("sel", r.dataset.idx==String(i)));
+  $("#dStat").textContent=p.slot==="starter"?"Starter":"Bench";
+  const[rl,rc]=ROLE[p.role]||["?","--fg-muted"];
+  const c=p.contract||{};
+  const cr=p.career||{}, so=p.solo||{}, pe=p.personality||{}, ac=p.accolades||{};
+  // Attributes in their natural engine (enum) order; names are snake_case so
+  // underscores become spaces and CSS capitalize handles the casing.
+  const attrHTML=(p.attributes||[]).map(a=>`<div class="attr"><span class="an">${esc(String(a.name).replace(/_/g,' '))}</span><span class="ab"><span class="af" style="width:${a.value}%;background:${attrColor(a.value)}"></span></span><span class="av">${a.value}</span></div>`).join("");
+  const pool=(p.agent_pool||[]).map(a=>`<span class="achip${a.name===p.signature_agent?' sig':''}">${esc(a.name)}</span>`).join("");
+  const persona=[["ambition",pe.ambition],["loyalty",pe.loyalty],["greed",pe.greed],["ego",pe.ego]]
+    .map(([n,v])=>`<div class="pbar"><span class="pn">${n}</span><span class="pt"><span class="pf" style="width:${v||0}%"></span></span><span class="pv">${v||0}</span></div>`).join("");
+  const traj=p.trajectory||"Established";
+  const trajCol=(traj==="Future Star"||traj==="Rising")?"var(--green)":(traj==="Slump"||traj==="Declining")?"#ff8a94":(traj==="Twilight"?"var(--amber)":"var(--fg-muted)");
+  const moodCol=p.mood>=62?"var(--green)":(p.mood<42?"#ff8a94":"var(--amber)");
+  const titles=(ac.titles||[]).slice(0,8);
+  const accHTML=(ac.total>0||ac.mvps>0||ac.role_awards>0)
+    ? `<div class="trophies"><span><b>${ac.regional}</b> Regional</span><span><b>${ac.masters}</b> Masters</span><span><b>${ac.worlds}</b> Worlds</span>${ac.mvps?`<span><b>${ac.mvps}</b> MVP</span>`:''}</div>${titles.length?`<div class="titlelist">${titles.map(esc).join(' · ')}</div>`:''}`
+    : `<div class="empty" style="padding:2px 0">No major honors yet — career ahead of them.</div>`;
+
+  $("#detailBody").innerHTML=`<div class="pd">
+    <div class="pdhead">
+      <div class="pdid">
+        <div class="pdname">${esc(p.name)}</div>
+        <div class="pdsub">
+          <span class="rrole" style="color:var(--fg);background:color-mix(in srgb,${cssvar(rc)} 18%,transparent);border:1px solid color-mix(in srgb,${cssvar(rc)} 45%,transparent)">${rl}</span>
+          <span>${esc(p.role)}${p.contract_role&&p.contract_role!==p.role?` · signed ${esc(p.contract_role)}`:''}</span>
+          <span class="dot"></span><span>${p.age}y</span>
+          <span class="dot"></span><span>${esc(p.country||p.region||'')}</span>
+          ${p.igl?'<span class="tchip" style="color:var(--amber);border-color:rgba(212,161,76,.45)">IGL</span>':''}
+          ${p.flex?'<span class="tchip" style="color:var(--blue);border-color:rgba(0,212,255,.4)">Flex</span>':''}
+        </div>
+        <div class="pdsub" style="margin-top:8px">
+          <span class="tchip" style="color:${trajCol};border-color:color-mix(in srgb,${trajCol} 45%,transparent)">${esc(traj)}</span>
+          <span>Morale</span><span class="pt" style="width:84px;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${p.mood||0}%;background:${moodCol}"></span></span>
+          <span class="num" style="color:${moodCol}">${p.mood||0}</span>
+          <span class="dot"></span><span class="achip sig" style="padding:2px 9px">${esc(pe.desire||'')}</span>
+        </div>
+      </div>
+      <div class="pdovr">
+        <div class="ovrbox"><div class="v" style="color:${ovrColor(p.ovr)}">${p.ovr}</div><div class="l">OVR</div></div>
+        <div class="ovrbox"><div class="v" style="color:var(--fg-muted)">${p.potential}</div><div class="l">Potential</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="seclab">Career Performance</div>
+      <div class="stats">
+        <div class="stat"><div class="v">${(+(cr.avg_rating||0)).toFixed(2)}</div><div class="l">Rating</div></div>
+        <div class="stat"><div class="v">${(+(cr.kd||0)).toFixed(2)}</div><div class="l">K/D</div></div>
+        <div class="stat"><div class="v">${Math.round(cr.adr||0)}</div><div class="l">ADR</div></div>
+        <div class="stat"><div class="v">${Math.round(cr.hs_pct||0)}%</div><div class="l">HS%</div></div>
+        <div class="stat"><div class="v">${Math.round(cr.kast_pct||0)}%</div><div class="l">KAST</div></div>
+        <div class="stat"><div class="v">${Math.round(cr.entry_pct||0)}%</div><div class="l">Entry</div></div>
+      </div>
+      <div class="season">This season: <b>${p.season_matches||0}</b> matches · rating <b>${(+(p.season_avg_rating||0)).toFixed(2)}</b> · K/D <b>${(+(p.season_kd||0)).toFixed(2)}</b> &nbsp;·&nbsp; career <b>${cr.matches||0}</b> matches · solo MMR <b>${so.mmr||0}</b> (peak ${so.peak_mmr||0})</div>
+    </div>
+
+    <div>
+      <div class="seclab">Attributes</div>
+      <div class="attrs">${attrHTML}</div>
+    </div>
+
+    <div>
+      <div class="seclab">Agent Pool · ${p.agent_pool_size||(p.agent_pool||[]).length}</div>
+      <div class="chips">${pool||'<span class="empty" style="padding:0">No agents assigned.</span>'}</div>
+    </div>
+
+    <div>
+      <div class="seclab">Personality</div>
+      <div class="persona">${persona}</div>
+    </div>
+
+    <div>
+      <div class="seclab">Contract</div>
+      <div class="contract-row">
+        <div class="cbox"><div class="v">${c.years_left||0}y</div><div class="l">Years left</div></div>
+        <div class="cbox"><div class="v">${fmtK(c.salary_k||0)}</div><div class="l">Salary / yr</div></div>
+        <div class="cbox"><div class="v">${c.signing_bonus_k?fmtK(c.signing_bonus_k):'—'}</div><div class="l">Sign bonus</div></div>
+        <div class="cbox"><div class="v" style="color:${c.promised_starter?'var(--green)':'var(--fg-muted)'}">${c.promised_starter?'Yes':'No'}</div><div class="l">Starter pledge</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="seclab">Honors</div>
+      ${accHTML}
+    </div>
+  </div>`;
+}
+
+/* ===== staff + chemistry strip ===== */
+const staff=R.staff||{}, strip=$("#strip");
+function staffCard(role,s,bars){
+  if(!s) return el("div","scard",`<div class="role">${role}</div><div class="empty" style="margin:auto 0">Position vacant.</div>`);
+  const barsHTML=bars.map(([n,v])=>`<div class="pbar"><span class="pn" style="width:84px">${n}</span><span class="pt"><span class="pf" style="width:${v}%;background:${attrColor(v)}"></span></span><span class="pv">${v}</span></div>`).join("");
+  const q=s.quality!=null?`Q ${s.quality}`:(s.reputation!=null?`Rep ${s.reputation}`:"");
+  return el("div","scard",`<div class="role">${role}</div><div class="sn">${esc(s.name)}</div><div class="sp">${esc(s.personality||'')}</div>
+    <div class="sbars">${barsHTML}</div>
+    <div class="sfoot"><span>${q}${s.report_depth?` · depth ${s.report_depth}`:''}</span><span class="sal">${fmtK(s.salary_k||0)}/yr</span></div>`);
+}
+strip.appendChild(staffCard("Head Coach",staff.coach,staff.coach?[["Tactical",staff.coach.tactical],["Development",staff.coach.development],["Leadership",staff.coach.leadership],["Experience",staff.coach.experience]]:[]));
+strip.appendChild(staffCard("Head Scout",staff.scout,staff.scout?[["Judgement",staff.scout.judgement],["Network",staff.scout.network],["Projection",staff.scout.projection],["Experience",staff.scout.experience]]:[]));
+strip.appendChild(staffCard("Head Analyst",staff.analyst,staff.analyst?[["Tactical Read",staff.analyst.tactical_read],["Opp. Insight",staff.analyst.opponent_insight],["Prep",staff.analyst.prep],["Experience",staff.analyst.experience]]:[]));
+// chemistry card
+const chem=R.chemistry||[];
+const chemCard=el("div","scard");
+let chemBody='<div class="role">Chemistry</div>';
+if(chem.length){
+  chemBody+='<div style="margin-top:8px;flex:1;overflow:hidden">'+chem.slice(0,5).map(c=>{
+    const v=+c.value, col=v>0.2?'var(--green)':(v<-0.2?'#ff8a94':'var(--fg-muted)');
+    return `<div class="chemrow"><span class="pair">${esc(c.a)} <span style="color:var(--fg-ghost)">—</span> ${esc(c.b)}</span><span class="cv" style="color:${col}">${v>=0?'+':''}${v.toFixed(2)}</span></div>`;
+  }).join('')+'</div>';
+}else{ chemBody+='<div class="empty" style="flex:1">Chemistry still forming — too early to read.</div>'; }
+// Footer (team index) shows regardless of whether per-pair rows exist.
+chemBody+=`<div class="sfoot"><span>team index</span><span class="sal">${team.chemistry_index!=null?team.chemistry_index:'—'}</span></div>`;
+chemCard.innerHTML=chemBody;
+strip.appendChild(chemCard);
+
+/* ===== init ===== */
+selectPlayer(0);
+function run(){
+  const seq=["#header","#kpis","#cRoster","#cDetail","#strip"];
+  if(reduced){ document.querySelectorAll(".enter").forEach(e=>e.classList.add("in")); }
+  else{ seq.forEach((s,i)=>{ const e=$(s); if(e) setTimeout(()=>e.classList.add("in"),60+i*55); }); }
+  if(!reduced) setTimeout(()=>document.querySelectorAll(".attr .af,.pbar .pf").forEach(b=>{const w=b.style.width;b.style.width="0";b.getBoundingClientRect();b.style.transition="width 600ms var(--ease)";requestAnimationFrame(()=>b.style.width=w);}),260);
+}
+if(document.readyState!=="loading") run(); else document.addEventListener("DOMContentLoaded",run);
+</script>
+</body>
+</html>

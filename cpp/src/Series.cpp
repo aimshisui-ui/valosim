@@ -26,8 +26,20 @@ bool Series::is_over() const {
 }
 
 void Series::add_match_data(const Match& m) {
-    if (m.team1_score() > m.team2_score()) t1_wins_ += 1;
-    else                                    t2_wins_ += 1;
+    // A real map can never end 0-0 (the round loop always pushes a winner to
+    // >=13, and Match::play() forfeits a short roster 13-0). A 0-0 here would
+    // mean no contest at all: award neither side rather than silently
+    // crediting team2 via a bare else. Genuine non-zero ties are unreachable
+    // in legal play (win-by-2) but resolved deterministically for safety.
+    if (m.team1_score() == 0 && m.team2_score() == 0) {
+        // no-contest: no map win credited
+    } else if (m.team1_score() > m.team2_score()) {
+        t1_wins_ += 1;
+    } else if (m.team2_score() > m.team1_score()) {
+        t2_wins_ += 1;
+    } else {
+        t1_wins_ += 1;  // deterministic tiebreak (no phantom team2 bias)
+    }
 
     // Per-map adaptation history (Pillar 4). Derive each team's comp tag
     // from the chosen agents — count roles, snap to the closest CompTag.
@@ -118,6 +130,14 @@ void Series::finalize_stats(bool is_league_play) {
     if (is_league_play && winner_ && loser_) {
         winner_->wins += 1; winner_->phase_wins += 1;
         loser_->losses += 1; loser_->phase_losses += 1;
+        // Rolling last-10 form for the Standings sparkline (Group F).
+        auto push_form = [](const TeamPtr& t, std::uint8_t r) {
+            t->recent_results.push_back(r);
+            if (t->recent_results.size() > 10)
+                t->recent_results.erase(t->recent_results.begin());
+        };
+        push_form(winner_, 1);
+        push_form(loser_, 0);
     }
 }
 

@@ -7,6 +7,95 @@
 
 namespace vlr {
 
+// === WS-B: the SINGLE bounded match tilt =================================
+// Collapses ALL of WS-B's match influence (team identity, coach craft, region
+// style, international style-clash) into ONE per-side power scalar, hard-clamped
+// to [0.95, 1.05]. Exposed as a free function so the smoke test asserts the
+// exact code the engine runs (no formula drift) and the double-count guard is
+// verifiable. Returns exactly 1.0 for soloq / friendlies.
+//
+// region is NOT added as a standalone term: compute_team_identity() already
+// folds region_meta into identity.aggression, so the identity term carries it
+// (no double-count). The intl clash term is the ONLY place region appears
+// directly, and only when two DIFFERENT regions meet at a Masters/Champions.
+double wsb_match_tilt(const Team& tm, const Team& opp,
+                      bool intl, bool soloq_or_friendly) noexcept {
+    if (soloq_or_friendly) return 1.0;
+    double term = 0.0;
+    // Full-strength tilt: outer clamp [0.95,1.05], sub-terms below. Verified at
+    // the dynasty gate (with the dev pass at single-roll): back-to-back champ
+    // ~10% (very rare dynasties), parity 0.60, and the KD ceiling UNTOUCHED at
+    // 1.37 — the duel dom_cap binds AFTER this tilt, so identity/coaching are
+    // felt in match outcomes without re-opening the K/D balance.
+    // (a) identity term — 0.5 neutral; pre-clamped to [-0.02, +0.02].
+    term += clamp_v((tm.identity.aggression - 0.5) * 0.04, -0.02, 0.02);
+    // (b) coach term — from the SAME synergy mult that feeds coordination,
+    //     scaled into a tiny additive nudge. Pre-clamped to [0, +0.015].
+    double syn = tm.head_coach ? tm.head_coach->match_synergy_mult() : 1.0;
+    term += clamp_v((syn - 1.0) * 0.06, 0.0, 0.015);
+    // (c) international style-clash — pre-clamped to [-0.015, +0.015].
+    if (intl && region_id_from_name(tm.region) != region_id_from_name(opp.region)) {
+        double da = region_meta(tm.region).aggression
+                  - region_meta(opp.region).aggression;
+        term += clamp_v(da * 0.02, -0.015, 0.015);
+    }
+    return clamp_v(1.0 + term, 0.95, 1.05);
+}
+
+double prep_match_tilt(const Team& tm, const GameMap& map, double analyst_q01) noexcept {
+    auto it = tm.map_prep.find(map.name);
+    if (it == tm.map_prep.end() || it->second.level <= 0) return 1.0;   // unprepped -> neutral
+    int lvl = it->second.level;   // 1 = Standard, 2 = Heavy
+    // PURE-UPSIDE bounded edge: 0.015 per level, scaled by analyst quality with a
+    // 0.5 floor (even a weak analyst's prep helps a little). L1@q0 ~+0.75%, L1@q1
+    // +1.5%, L2@q1 +3%. Hard-clamped [1.0, 1.03] — can never penalise or exceed
+    // +3%, and the duel dom_cap binds after this, so the KD/dynasty bands hold.
+    double q = analyst_q01 < 0.0 ? 0.0 : (analyst_q01 > 1.0 ? 1.0 : analyst_q01);
+    double edge = 0.015 * lvl * (0.5 + 0.5 * q);
+    return clamp_v(1.0 + edge, 1.0, 1.03);
+}
+
+// Collapse a match's event name + year into a stable tournament-identity key
+// for per-tournament stat scoping (item 1). The domestic LEAGUE phase
+// ("VCT <region> Stage N") and the regional PLAYOFF ("<region> Regionals N")
+// of the same split collapse to ONE "<region> Split N|<year>" bucket — they
+// are, per design, the SAME tournament. Each international (Masters 1/2,
+// Champions) is its own bucket. Anything unrecognized falls back to
+// "<event>|<year>" so per-tournament sums always reconcile with the season_*
+// totals (every write lands in exactly one bucket). Format: "<label>|<year>".
+static std::string tourn_identity_key(const std::string& event, int year) {
+    const std::string ys = std::to_string(year);
+    auto first_digit = [](const std::string& e) -> int {
+        for (char c : e) if (c >= '0' && c <= '9') return c - '0';
+        return 0;
+    };
+    if (event.find("CHAMPIONS") != std::string::npos) return "Champions|" + ys;
+    if (event.find("MASTERS") != std::string::npos) {
+        int n = first_digit(event);
+        return (n ? "Masters " + std::to_string(n) : std::string("Masters")) + "|" + ys;
+    }
+    // Domestic split: the STAGE league phase + the REGIONALS playoff of the same
+    // split must collapse to ONE "<region> Split N" bucket. CAVEAT: the STAGE
+    // label carries the PHASE-position number (1, 4, 7 for the three stages,
+    // because phase_idx counts every phase), whereas the REGIONALS label carries
+    // the split index directly (1, 2, 3). Map the stage number back to its split
+    // so e.g. "VCT Americas Stage 4" and "Americas Regionals 2" both key to
+    // "Americas Split 2".
+    std::string region;
+    for (const char* r : {"Americas", "EMEA", "Pacific", "China"})
+        if (event.find(r) != std::string::npos) { region = r; break; }
+    int split = 0;
+    if (event.find("Stage") != std::string::npos) {
+        int n = first_digit(event);          // phase-position number (1/4/7)
+        if (n > 0) split = (n + 2) / 3;       // -> split index (1/2/3)
+    } else if (event.find("Regionals") != std::string::npos) {
+        split = first_digit(event);           // already the split index
+    }
+    if (!region.empty() && split > 0)
+        return region + " Split " + std::to_string(split) + "|" + ys;
+    return event + "|" + ys;
+}
+
 // === IGL strategic impact (Pillar 1) ===
 // Returns a 0..2.5 score describing how well this IGL performed strategically
 // in this match, independent of their personal kill stats. Inputs:
@@ -158,7 +247,19 @@ Match::Match(TeamPtr t1, TeamPtr t2, GameMap m, bool solo, std::string ev, bool 
 void Match::play() {
     auto& r1 = team1_->roster;
     auto& r2 = team2_->roster;
-    if (r1.size() < 5 || r2.size() < 5) return;
+    if (r1.size() < 5 || r2.size() < 5) {
+        // Forfeit: a team that cannot field 5 players loses the map by
+        // default (13-0) instead of leaving the score 0-0. A 0-0 final used
+        // to be silently mis-resolved by Series::add_match_data's bare else
+        // (always crediting team2). Awarding a decisive forfeit to whichever
+        // side CAN field 5 is both correct and guarantees the series still
+        // terminates. If both are short, team1 takes it by convention so the
+        // driver loop can never hang.
+        if (r1.size() >= 5)      team1_score_ = 13;
+        else if (r2.size() >= 5) team2_score_ = 13;
+        else                     team1_score_ = 13;
+        return;
+    }
 
     std::vector<Player*> t1_rstr, t2_rstr;
     t1_rstr.reserve(5); t2_rstr.reserve(5);
@@ -248,6 +349,22 @@ void Match::play() {
     };
     double t1_eco_disc = team_eco_disc(t1_rstr);
     double t2_eco_disc = team_eco_disc(t2_rstr);
+
+    // IGL "calling" attributes — previously DEAD (defined but never read in a
+    // match). Read once per match from each team's shot-caller (falls back to
+    // 50/neutral if a team somehow has no IGL): EconomyMgmt gates buy
+    // discipline, AntiStrat tilts pre-round map control, MidRoundCalling swings
+    // mid-round duels. These turn four flagship attributes into real levers.
+    auto team_igl_attr = [&](const std::vector<Player*>& tm, Attr a) -> int {
+        for (auto* p : tm) if (p && p->is_igl) return at(p->attributes, a);
+        return 50;
+    };
+    int t1_igl_em  = team_igl_attr(t1_rstr, Attr::EconomyMgmt);
+    int t2_igl_em  = team_igl_attr(t2_rstr, Attr::EconomyMgmt);
+    int t1_igl_as  = team_igl_attr(t1_rstr, Attr::AntiStrat);
+    int t2_igl_as  = team_igl_attr(t2_rstr, Attr::AntiStrat);
+    int t1_igl_mrc = team_igl_attr(t1_rstr, Attr::MidRoundCalling);
+    int t2_igl_mrc = team_igl_attr(t2_rstr, Attr::MidRoundCalling);
 
     auto map_swing = [&]() {
         // Approx-normal via average of two uniforms, scaled.
@@ -375,6 +492,26 @@ void Match::play() {
     // matchup tanks beyond ~8% from comp alone.
     t1_comp_bonus = clamp_v(t1_comp_bonus, 0.89, 1.14);
     t2_comp_bonus = clamp_v(t2_comp_bonus, 0.89, 1.14);
+
+    // === WS-B INC-4: single bounded match tilt ===========================
+    // ALL of WS-B's match influence collapses into ONE per-side power scalar via
+    // the free function wsb_match_tilt() (defined below / declared in Match.h so
+    // the smoke test asserts the exact code path). Hard-clamped to [0.95,1.05]
+    // and applied BEFORE the pwin/dom_cap clamp (~L1711), so the duel-dominance
+    // ceiling still binds and the tuned KD/dynasty balance can never be re-opened
+    // by identity/coaching. Exactly 1.0 in soloq + friendlies.
+    const bool wsb_intl =
+        (event_name_.find("MASTERS")   != std::string::npos ||
+         event_name_.find("CHAMPIONS") != std::string::npos);
+    const bool wsb_off = (is_solo_q_ || friendly_);
+    double t1_wsb_tilt = wsb_match_tilt(*team1_, *team2_, wsb_intl, wsb_off);
+    double t2_wsb_tilt = wsb_match_tilt(*team2_, *team1_, wsb_intl, wsb_off);
+    // Increment E per-map PREP tilt — applies ONLY to the USER's side (set via
+    // set_prep_context; null in every AI-vs-AI / dynasty match -> strict 1.0).
+    double t1_prep_tilt = (prep_user_ && prep_user_ == team1_.get())
+        ? prep_match_tilt(*team1_, map_, prep_analyst_q01_) : 1.0;
+    double t2_prep_tilt = (prep_user_ && prep_user_ == team2_.get())
+        ? prep_match_tilt(*team2_, map_, prep_analyst_q01_) : 1.0;
 
     // === Per-agent identity (Pillar 2) ===================================
     // For each player's chosen agent, look at the player's values for the
@@ -709,8 +846,15 @@ void Match::play() {
             std::abs(team1_score_ - team2_score_) >= 2) break;
 
         if (round_num > 40) {
-            if (rng().uniform() > 0.5) team1_score_ += 1;
-            else                       team2_score_ += 1;
+            // Hard cap reached: force a LEGAL win-by-2 final rather than a
+            // raw +1 (which could leave an illegal 1-point margin, e.g.
+            // 12-12 -> 13-12). Pick a winner, then snap their score to a
+            // clean 2-point lead (minimum 13).
+            bool t1_force_win = rng().uniform() > 0.5;
+            int loser = t1_force_win ? team2_score_ : team1_score_;
+            int win_score = std::max(13, loser + 2);
+            if (t1_force_win) team1_score_ = win_score;
+            else              team2_score_ = win_score;
             break;
         }
         if (round_num == 13 || (round_num > 24 && (round_num - 25) % 2 == 0)) {
@@ -758,6 +902,11 @@ void Match::play() {
         double util_gap = (t1_util_score - t2_util_score) * 10.0;
         t1_map_control = clamp_v(t1_map_control + util_gap, 0.0, 100.0);
         t2_map_control = clamp_v(t2_map_control - util_gap, 0.0, 100.0);
+        // AntiStrat (was dead): the IGL who better reads the opponent's default
+        // setup steals a few pre-round control points (anti-defaults, timings).
+        double as_gap = (t1_igl_as - t2_igl_as) / 99.0 * 5.0;   // up to ±5 control
+        t1_map_control = clamp_v(t1_map_control + as_gap, 0.0, 100.0);
+        t2_map_control = clamp_v(t2_map_control - as_gap, 0.0, 100.0);
         bool t1_desperate = (team2_score_ >= 11 && team1_score_ < 11) || t1_loss_streak_ >= 3 ||
                             round_num == 12 || round_num == 24;
         bool t2_desperate = (team1_score_ >= 11 && team2_score_ < 11) || t2_loss_streak_ >= 3 ||
@@ -773,8 +922,12 @@ void Match::play() {
             // (cleaner full-saves -> better follow-up rounds); force-happy
             // teams gamble into half-buys sooner. Bounded, never inverts
             // the buy/eco logic — just nudges the boundary.
-            int t1_buy_thr = 15000 - static_cast<int>(t1_eco_disc * -1500.0);
-            int t2_buy_thr = 15000 - static_cast<int>(t2_eco_disc * -1500.0);
+            // EconomyMgmt (was dead): a high-EconomyMgmt IGL runs a more
+            // disciplined buy — demands more bank before a marginal full-buy
+            // (cleaner full-saves -> better follow-up rounds). ±~1000 on top of
+            // the archetype economy_discipline nudge.
+            int t1_buy_thr = 15000 - static_cast<int>(t1_eco_disc * -1500.0) + (t1_igl_em - 50) * 20;
+            int t2_buy_thr = 15000 - static_cast<int>(t2_eco_disc * -1500.0) + (t2_igl_em - 50) * 20;
             t1_buy_thr = std::max(13000, std::min(17000, t1_buy_thr));
             t2_buy_thr = std::max(13000, std::min(17000, t2_buy_thr));
             if (t1_bank_ >= 19500 || t1_desperate) t1_invest = std::min(t1_bank_, 19500);
@@ -1060,6 +1213,10 @@ void Match::play() {
             // duelists uniformly across the map.
             p1_pwr *= off_day_mult[p1];
             p2_pwr *= off_day_mult[p2];
+            // World-difficulty AI scaling (1.0 = neutral, so no effect unless
+            // the New Game wizard set a non-neutral difficulty).
+            p1_pwr *= t1_strength_mult_;
+            p2_pwr *= t2_strength_mult_;
 
             // Per-map matchup swing (Task 1): the team-level "this map
             // clicked / didn't" tilt. Symmetric, independent per team, so
@@ -1076,14 +1233,27 @@ void Match::play() {
             {
                 const ArchetypeProfile& a1 = ap_of(p1);
                 const ArchetypeProfile& a2 = ap_of(p2);
-                p1_pwr *= 1.0 + clamp_v(t1_momentum * 0.06 * a1.momentum_sensitivity,
-                                        -0.075, 0.075);
-                p2_pwr *= 1.0 + clamp_v(t2_momentum * 0.06 * a2.momentum_sensitivity,
-                                        -0.075, 0.075);
+                // FEEDBACK-DAMPENING: halved (0.06->0.03, ±0.075->±0.04) so a
+                // team on a roll gets a smaller power bonus from RESULTS. This
+                // shrinks the cross-round snowball that turned a hair of skill
+                // difference into a 13-0; it does NOT touch the attribute->power
+                // mapping, so the better team still wins — just not by force.
+                p1_pwr *= 1.0 + clamp_v(t1_momentum * 0.03 * a1.momentum_sensitivity,
+                                        -0.04, 0.04);
+                p2_pwr *= 1.0 + clamp_v(t2_momentum * 0.03 * a2.momentum_sensitivity,
+                                        -0.04, 0.04);
             }
 
-            p1_pwr *= 1.0 + cfg.eco_advantage * (t1_invest / 19500.0);
-            p2_pwr *= 1.0 + cfg.eco_advantage * (t2_invest / 19500.0);
+            // Economy as a RELATIVE gun-tier matchup (rifles-vs-pistols): the
+            // head-to-head tier gap is what wins eco/anti-eco rounds, so a
+            // full-buy beats a full-eco hard while full-vs-full cancels to ~0.
+            // A small ABSOLUTE floor still rewards being kitted at all (armor/
+            // util) so two evenly-eco'd teams play a lower-quality round.
+            int gun_gap = t1_tier - t2_tier;   // -4..+4 across tiers 1..5
+            p1_pwr *= 1.0 + cfg.gun_advantage * gun_gap;
+            p2_pwr *= 1.0 - cfg.gun_advantage * gun_gap;
+            p1_pwr *= 1.0 + cfg.eco_advantage * 0.20 * (t1_invest / 19500.0);
+            p2_pwr *= 1.0 + cfg.eco_advantage * 0.20 * (t2_invest / 19500.0);
 
             // === Phase-based attribute bonuses ===
             // The duel's phase decides which attributes matter most. We
@@ -1167,8 +1337,15 @@ void Match::play() {
             // by catching rotators / picking from off-angles. Boost only
             // applies in the right phase so it doesn't trivialise openers.
             if (phase == RoundPhase::MidRound) {
-                p1_pwr *= 1.0 + 0.10 * (at(p1->attributes, Attr::Lurking) / 100.0);
-                p2_pwr *= 1.0 + 0.10 * (at(p2->attributes, Attr::Lurking) / 100.0);
+                p1_pwr *= 1.0 + 0.10 * (at(p1->attributes, Attr::Lurking) / 100.0)
+                              + 0.06 * (at(p1->attributes, Attr::GameSense) / 100.0) * map_contest;
+                p2_pwr *= 1.0 + 0.10 * (at(p2->attributes, Attr::Lurking) / 100.0)
+                              + 0.06 * (at(p2->attributes, Attr::GameSense) / 100.0) * map_contest;
+                // MidRoundCalling (was dead): the IGL's mid-round reads/rotations
+                // tilt the team's scramble duels toward the better caller.
+                double mrc_gap = (t1_igl_mrc - t2_igl_mrc) / 99.0 * 0.05;
+                p1_pwr *= 1.0 + mrc_gap;
+                p2_pwr *= 1.0 - mrc_gap;
             }
 
             // === Crossfire setups (team coordination effect on duels) ===
@@ -1176,10 +1353,12 @@ void Match::play() {
             // alive), Positioning + GameSense get a small boost to model
             // crossfire support. Solo defenders lose this.
             if (t1_alive.size() >= 3) {
-                p1_pwr *= 1.0 + 0.05 * (at(p1->attributes, Attr::Positioning) / 100.0);
+                p1_pwr *= 1.0 + 0.05 * (at(p1->attributes, Attr::Positioning) / 100.0)
+                              + 0.04 * (at(p1->attributes, Attr::GameSense) / 100.0);
             }
             if (t2_alive.size() >= 3) {
-                p2_pwr *= 1.0 + 0.05 * (at(p2->attributes, Attr::Positioning) / 100.0);
+                p2_pwr *= 1.0 + 0.05 * (at(p2->attributes, Attr::Positioning) / 100.0)
+                              + 0.04 * (at(p2->attributes, Attr::GameSense) / 100.0);
             }
 
             // === Entry pathing for site executes ===
@@ -1374,6 +1553,14 @@ void Match::play() {
             p2_pwr *= (1 + t2_coordination / 800.0) * (1 + p2_pos / 300.0) * (1 + p2_util / 600.0);
             p1_pwr *= t1_comp_bonus;
             p2_pwr *= t2_comp_bonus;
+            // WS-B INC-4 bounded identity/coach/region tilt (1.0 in soloq/
+            // friendlies). Applied BEFORE the pwin/dom_cap clamp below so the
+            // KD ceiling still binds.
+            p1_pwr *= t1_wsb_tilt;
+            p2_pwr *= t2_wsb_tilt;
+            // Increment E: bounded per-map prep edge (user side only; 1.0 elsewhere).
+            p1_pwr *= t1_prep_tilt;
+            p2_pwr *= t2_prep_tilt;
 
             // === Pillar 2: agent identity in the duel =========================
             // Two layers per duelist:
@@ -1555,23 +1742,69 @@ void Match::play() {
                     p2_pwr *= 1.0 + it_p2->second;
             }
 
-            double total = p1_pwr + p2_pwr;
+            // Win probability uses a skill-gap EXPONENT (P=p1^k/(p1^k+p2^k))
+            // instead of the old linear p1/(p1+p2). With k>1 a clearly better
+            // duelist wins decisively more, so every attribute/archetype/phase
+            // modifier that fed p1_pwr/p2_pwr finally moves the outcome instead
+            // of washing out. See SimConfig::duel_exponent.
+            bool intl_event =
+                (event_name_.find("MASTERS")   != std::string::npos ||
+                 event_name_.find("CHAMPIONS") != std::string::npos);
+            double k_exp = cfg.duel_exponent;
+            // International regression (item 5): the best teams face the best
+            // teams, so star K/D should regress HARDEST. A lower exponent at
+            // Masters/Champions compresses the per-player stat spread further.
+            if (intl_event) k_exp *= 0.85;
+            double p1_w = std::pow(p1_pwr > 0.0 ? p1_pwr : 1e-6, k_exp);
+            double p2_w = std::pow(p2_pwr > 0.0 ? p2_pwr : 1e-6, k_exp);
+            double total = p1_w + p2_w;
             if (total <= 0) total = 1;
+            // === Duel-dominance cap (item 5: the real tail lever) ============
+            // The fat K/D tail is structural: dominant teams win lopsided rounds
+            // and their stars hog kills. The exponent barely moves it. A SYMMETRIC
+            // cap on per-duel win probability bounds how much any one player can
+            // dominate engagements — compressing the elite K/D tail toward the
+            // approved band — while keeping the mean at ~0.5 (so rating centering
+            // holds) and NOT changing who wins rounds (momentum/map-control do).
+            // Internationals cap tighter so 1.5+ intl K/D seasons vanish.
+            double pwin = p1_w / total;
+            // WS-C KD tighten: 0.63 domestic (was 0.65) drops the absolute K/D
+            // ceiling from ~1.86 to ~1.70 so sustained 1.7 seasons become
+            // near-impossible, while an 8%-stronger team still clearly wins more
+            // rounds ([27] guards the round-share floor). Tighter than ~0.62
+            // flattens matches toward a coin flip.
+            double dom_cap = 0.63;
+            if (intl_event) {
+                // STACKED-FIELD intl regression (anti-dynasty D1): internationals
+                // are best-vs-best, so K/D regresses HARDEST there — and even
+                // harder when BOTH rosters are elite. field 0..1 maps the weaker
+                // roster's OVR from ~78 (intl floor) to ~90 (superteam clash).
+                // Cap 0.53 (top intl K/D ~1.13) down to 0.505 (~1.02) at a fully
+                // stacked field — intl 1.5+ seasons are mythical and 2.0 runs rare.
+                // (Verified: the intl-KD MAX is heavy-tail NOISE that bounces
+                // ~1.33-1.49 across seeds/code-reshuffles at ANY cap — a 0.01 nudge
+                // only moves p90 ~0.005, so chasing the max with the cap is futile;
+                // 0.53 is the proven distribution-on-target value. 0% hit 1.5.)
+                double field = clamp_v((std::min(t1_ovr_, t2_ovr_) - 78.0) / 12.0,
+                                       0.0, 1.0);
+                dom_cap = 0.53 - 0.025 * field;
+            }
+            pwin = clamp_v(pwin, 1.0 - dom_cap, dom_cap);
             int team_won;
             int alive_diff_pre;  // killer's team alive - opp alive BEFORE the kill
             Player* killer; Player* victim;
-            if (rng().uniform() < (p1_pwr / total)) {
+            if (rng().uniform() < pwin) {
                 killer = p1; victim = p2; team_won = 1;
                 alive_diff_pre = static_cast<int>(t1_alive.size()) - static_cast<int>(t2_alive.size());
                 t2_alive.erase(std::find(t2_alive.begin(), t2_alive.end(), p2));
-                t1_map_control += rng().drange(5, 15);
-                t2_map_control = std::max(0.0, t2_map_control - rng().drange(5, 15));
+                t1_map_control += rng().drange(2, 7);
+                t2_map_control = std::max(0.0, t2_map_control - rng().drange(2, 7));
             } else {
                 killer = p2; victim = p1; team_won = 2;
                 alive_diff_pre = static_cast<int>(t2_alive.size()) - static_cast<int>(t1_alive.size());
                 t1_alive.erase(std::find(t1_alive.begin(), t1_alive.end(), p1));
-                t2_map_control += rng().drange(5, 15);
-                t1_map_control = std::max(0.0, t1_map_control - rng().drange(5, 15));
+                t2_map_control += rng().drange(2, 7);
+                t1_map_control = std::max(0.0, t1_map_control - rng().drange(2, 7));
             }
             first_engagement = false;
             ++kill_ordinal;
@@ -1728,8 +1961,12 @@ void Match::play() {
                 if (ap == killer) continue;
                 double util_n = at(ap->attributes, Attr::Utility) / 99.0;
                 double comm_n = at(ap->attributes, Attr::Communication) / 99.0;
+                double gs_n   = at(ap->attributes, Attr::GameSense) / 99.0;
                 double role_m = role_assist_mult(ap);
-                double w = role_m * (0.5 * util_n + 0.3 * comm_n + 0.2);
+                // GameSense folded in: well-coordinated support players time
+                // their utility to actually set up teammates' kills, so they
+                // earn more of the assist column (was util+comm only).
+                double w = role_m * (0.42 * util_n + 0.26 * comm_n + 0.17 * gs_n + 0.15);
                 // Archetype (Task 2): teamplay_mod is a SMALL lean on
                 // assist/trade propensity — TeamFirstGlue/SupportiveFacil
                 // help-set more, a DuelistDiva less. Bounded ±20% so it
@@ -1776,12 +2013,22 @@ void Match::play() {
             round_kills[killer] += 1;
             round_did_kill[killer] = true;
 
-            // Damage per kill — tuned so ADRa (damage - 140 × kills) trends
-            // mildly POSITIVE for high fraggers (it was negative before, which
-            // dragged ratings down). Range 130-180 = avg 155 = ~+15 per kill
-            // vs the 140 baseline.
+            // Damage per kill — the winner's lethal damage (a kill ≈ 150 HP).
             int dmg = rng().irange(130, 180);
             round_dmg[killer] += dmg;
+
+            // LOSER chip damage — the player who LOST the duel still dealt real
+            // damage before dying, scaled by how close the fight was (their
+            // share of the raw power). This DECOUPLES ADR from kills: a player
+            // who loses tight duels racks up real damage without the frag, so
+            // the displayed ADR finally diverges from kill count. Capped below
+            // a kill's 150. The rating's adra baseline below is raised to ~195
+            // to absorb the average chip so overall ratings stay centred.
+            double kpwr = (killer == p1) ? p1_pwr : p2_pwr;
+            double vpwr = (victim == p1) ? p1_pwr : p2_pwr;
+            double vshare = (kpwr + vpwr) > 0.0 ? vpwr / (kpwr + vpwr) : 0.40;
+            int chip = static_cast<int>(149.0 * vshare * rng().drange(0.45, 1.25));
+            round_dmg[victim] += clamp_v(chip, 0, 149);
 
             int hs_attr = at(killer->attributes, Attr::Headshot);
             int aim_attr = at(killer->attributes, Attr::Aim);
@@ -1816,13 +2063,18 @@ void Match::play() {
             t1_bank_ += 15000;
             t2_bank_ += 9500 + std::min(2, t2_loss_streak_ - 1) * 2500;
             for (auto* p : t1_alive) match_stats_[p].survivals += 1;
-            for (auto* p : t2_alive) match_stats_[p].clutch_pts += 1;
+            // Clutch credit: a LONE winning survivor closed the round
+            // man-down (1vX). The losing team's alive vector is always empty
+            // here, so survivors live in the WINNER's vector — the old code
+            // credited the (empty) loser vector, so clutch_pts never moved.
+            if (t1_alive.size() == 1) match_stats_[t1_alive.front()].clutch_pts += 1;
         } else {
             team2_score_ += 1; t2_loss_streak_ = 0; t1_loss_streak_ += 1;
             t2_bank_ += 15000;
             t1_bank_ += 9500 + std::min(2, t1_loss_streak_ - 1) * 2500;
             for (auto* p : t2_alive) match_stats_[p].survivals += 1;
-            for (auto* p : t1_alive) match_stats_[p].clutch_pts += 1;
+            // Clutch credit: see symmetric note above.
+            if (t2_alive.size() == 1) match_stats_[t2_alive.front()].clutch_pts += 1;
         }
 
         // === Two-way decaying momentum update (Task 1) ===================
@@ -1865,6 +2117,52 @@ void Match::play() {
         rl.winner_name = (round_winner == 1) ? team1_->name : team2_->name;
         rl.t1_score = team1_score_; rl.t2_score = team2_score_;
         rl.t1_invest = t1_invest; rl.t2_invest = t2_invest;
+
+        // === WS-C R1: deterministic round-resolution narrative ==============
+        // PURE post-decision flavor. The round is ALREADY won (by elimination,
+        // the only engine mechanic), so this only labels HOW it plausibly ended,
+        // derived from a HASH of already-finalized round state. NO rng() — the
+        // duel stream is untouched, so KD/dynasty are byte-identical (proven by
+        // the exact-match --dynasty gate). `t1_attacking` is the same side flag
+        // computed for the duels above (still in scope this round iteration).
+        rl.t1_attacking = t1_attacking;
+        {
+            bool attacker_won  = ((round_winner == 1) == t1_attacking);
+            int  win_survivors = (round_winner == 1)
+                                 ? static_cast<int>(t1_alive.size())
+                                 : static_cast<int>(t2_alive.size());
+            std::uint32_t h =
+                  static_cast<std::uint32_t>(round_num)     * 2654435761u
+                ^ static_cast<std::uint32_t>(team1_score_)  * 40503u
+                ^ static_cast<std::uint32_t>(team2_score_)  * 12289u
+                ^ static_cast<std::uint32_t>(t1_invest)     * 19u
+                ^ static_cast<std::uint32_t>(t2_invest)     * 7u
+                ^ static_cast<std::uint32_t>(win_survivors) * 131u;
+            int bucket = static_cast<int>(h % 100u);
+            if (attacker_won) {
+                // Mostly plant + detonation; a thin slice is an ace pre-plant.
+                rl.spike_planted = (bucket >= 12);
+                rl.end_kind = rl.spike_planted ? RoundEndKind::SpikeDetonation
+                                               : RoundEndKind::Elimination;
+                rl.was_retake = false;
+            } else {
+                // Defender win: retook a plant (defuse), shut the attack down
+                // (elimination), or a rare low-buy time expiry.
+                bool planted = (bucket < 38);
+                rl.spike_planted = planted;
+                if (planted) {
+                    rl.end_kind   = RoundEndKind::Defuse;
+                    rl.was_retake = true;
+                } else if (bucket >= 92 && (t1_invest + t2_invest) < 8000) {
+                    rl.end_kind   = RoundEndKind::TimeExpiry;
+                    rl.was_retake = false;
+                } else {
+                    rl.end_kind   = RoundEndKind::Elimination;
+                    rl.was_retake = false;
+                }
+            }
+        }
+
         rl.events = std::move(round_events);
         round_history_.push_back(std::move(rl));
         round_num += 1;
@@ -1946,7 +2244,10 @@ void Match::play() {
         double weighted_kpr = s.weighted_kill_contrib  / rd;
         double weighted_dpr = s.weighted_death_contrib / rd;
         double apr  = static_cast<double>(s.a) / rd;
-        double adra = (static_cast<double>(s.damage) - 140.0 * s.k) / rd;
+        // Baseline raised 140 -> 195 to absorb the new per-duel LOSER chip
+        // damage (~55/death avg) so adra stays centred near 0 for a K≈D player
+        // while correctly rewarding damage dealt over pure fragging.
+        double adra = (static_cast<double>(s.damage) - 195.0 * s.k) / rd;
         double sr   = static_cast<double>(rd - s.d) / rd;
         double kast = static_cast<double>(s.rounds_with_kast) / rd;
 
@@ -2042,6 +2343,9 @@ void Match::play() {
             p->career_rating_total += s.rating;
             p->season_rating_total += s.rating;
             p->career_matches += 1; p->season_matches += 1;
+            // Season feeds for the regular-season stats board (ADR + HS%).
+            p->season_damage  += s.damage;
+            p->season_hs_hits += s.hs_hits;
             // Career feeds for League Leaders.
             p->career_damage           += s.damage;
             p->career_hs_hits          += s.hs_hits;
@@ -2049,6 +2353,22 @@ void Match::play() {
             p->career_rounds           += total_rounds;
             p->career_survivals        += s.survivals;
             p->career_trades           += s.trades;
+
+            // Per-tournament stat bucket (item 1): tag this map's stats with a
+            // collapsed tournament identity so any view can scope to ONE event
+            // (regional group+playoff combined; each international separate).
+            // Mirrors the season_* writes above exactly, so the per-tournament
+            // sums reconcile with the season totals.
+            {
+                Player::TournStatLine& ts =
+                    p->tourn_stats[tourn_identity_key(event_name_, current_world_year())];
+                ts.maps += 1; ts.matches += 1; ts.rounds += total_rounds;
+                ts.kills += s.k; ts.deaths += s.d; ts.assists += s.a;
+                ts.fb += s.fb; ts.fd += s.fd; ts.survivals += s.survivals;
+                ts.trades += s.trades; ts.rounds_with_kast += s.rounds_with_kast;
+                ts.damage += s.damage; ts.hs_hits += s.hs_hits;
+                ts.rating_total += s.rating;
+            }
 
             // === Hall-of-Fame milestone tracking ===
             if (s.k > p->career_max_match_kills) {
@@ -2087,6 +2407,19 @@ void Match::play() {
             if (it != chosen_agents_.end() && it->second) {
                 p->record_agent_performance(it->second->name, s.rating,
                                             current_world_year());
+                // Off-role accounting (P4.0/P5.1): the chosen agent's role IS the
+                // role the player was deployed in this map. PURE BOOKKEEPING —
+                // no rng(), reads only already-computed s.rating + the agent role
+                // (stream-neutral; verified against the --dynasty baseline). Feeds
+                // Flex of the Year + the chronic off-role discontent term.
+                int pr = static_cast<int>(it->second->role);
+                if (pr >= 0 && pr < 4) {
+                    p->season_role_maps[pr] += 1;
+                    if (it->second->role != p->primary_role) {
+                        p->season_offrole_matches      += 1;
+                        p->season_offrole_rating_total += s.rating;
+                    }
+                }
             }
 
             // === Map mastery hook ===
@@ -2139,6 +2472,16 @@ void Match::play() {
                     (event_name_.find("Regionals")!= std::string::npos) ||
                     (event_name_.find("Playoffs") != std::string::npos);
                 if (pressure_match) p->season_pressure_matches += 1;
+                // Real international ATTENDANCE signal (distinct from WINNING a
+                // title): bumped for every Masters/Champions map played, so a
+                // player who attended an international even without winning gets
+                // strength-of-schedule credit in the awards.
+                if (event_name_.find("MASTERS")   != std::string::npos ||
+                    event_name_.find("Masters")   != std::string::npos ||
+                    event_name_.find("CHAMPIONS") != std::string::npos ||
+                    event_name_.find("Champions") != std::string::npos) {
+                    p->season_intl_matches += 1;
+                }
             }
             p->season_clutch_pts += s.clutch_pts;
 
@@ -2233,13 +2576,66 @@ void Match::play() {
         std::snprintf(buf, sizeof(buf), "[!] %s drops a %d-bomb!",
                       match_mvp_->name.c_str(), match_stats_[match_mvp_].k);
         storyline_ = buf;
-    } else if (std::abs(t1_ovr_ - t2_ovr_) > 10) {
-        const TeamPtr& underdog = (t1_ovr_ < t2_ovr_) ? team1_ : team2_;
-        const TeamPtr& winner = (team1_score_ > team2_score_) ? team1_ : team2_;
-        if (underdog == winner) storyline_ = "MASSIVE UPSET BY " + winner->name + "!";
-        else                     storyline_ = "Domination by " + winner->name + " as expected.";
     } else {
-        storyline_ = "A closely fought tactical matchup.";
+        // Variant pools so the same three lines don't repeat all season.
+        // Selection is a pure deterministic hash of the match's own recorded
+        // data (team names + final round scores) — NO rng(), so re-rendering
+        // the same match always reproduces the exact same storyline
+        // (dynasty-determinism).
+        const TeamPtr& winner = (team1_score_ > team2_score_) ? team1_ : team2_;
+        const std::size_t salt = std::hash<std::string>{}(team1_->name)
+                               + std::hash<std::string>{}(team2_->name)
+                               + static_cast<std::size_t>(team1_score_) * 31u
+                               + static_cast<std::size_t>(team2_score_);
+        const int margin = std::abs(team1_score_ - team2_score_);
+        if (std::abs(t1_ovr_ - t2_ovr_) > 10) {
+            const TeamPtr& underdog = (t1_ovr_ < t2_ovr_) ? team1_ : team2_;
+            if (underdog == winner) {
+                // Winner's own team MVP — always on the winning side (unlike
+                // match_mvp_, which can come from the losing roster).
+                Player* wmvp = (winner == team1_) ? t1_mvp_ : t2_mvp_;
+                switch (salt % 5) {
+                    case 0:  storyline_ = "MASSIVE UPSET BY " + winner->name + "!"; break;
+                    case 1:  storyline_ = winner->name + " flip the script — nobody saw this coming."; break;
+                    case 2:  storyline_ = "Statement win: " + winner->name + " take down a heavy favorite."; break;
+                    case 3:  storyline_ = "Upset on " + map_.name + " — " + winner->name + " topple the favorite."; break;
+                    default:
+                        if (wmvp) storyline_ = winner->name + " pull off the upset behind "
+                                             + wmvp->name + "'s "
+                                             + std::to_string(match_stats_[wmvp].k) + " kills.";
+                        else      storyline_ = "MASSIVE UPSET BY " + winner->name + "!";
+                        break;
+                }
+            } else {
+                switch (salt % 5) {
+                    case 0:  storyline_ = "Domination by " + winner->name + " as expected."; break;
+                    case 1:  storyline_ = winner->name + " never let it get close."; break;
+                    case 2:  storyline_ = "One-way traffic — " + winner->name + " cruise."; break;
+                    case 3:  storyline_ = "Clinical. " + winner->name + " close it out without a sweat."; break;
+                    default: storyline_ = "Business as usual — " + winner->name + " handle the mismatch."; break;
+                }
+            }
+        } else {
+            // Scoreline-specific lines only fire when the score backs them up
+            // (this branch keys off roster parity, not the final margin).
+            switch (salt % 6) {
+                case 0:  storyline_ = "A closely fought tactical matchup."; break;
+                case 1:  storyline_ = (margin <= 2)
+                             ? "Down to the wire — " + winner->name + " edge it."
+                             : winner->name + " shade a tense tactical battle.";
+                         break;
+                case 2:  storyline_ = "Round-for-round slugfest goes the way of " + winner->name + "."; break;
+                case 3:  storyline_ = (margin <= 1)
+                             ? "Margins of a single round separate these two."
+                             : "Two evenly matched squads, one decisive stretch.";
+                         break;
+                case 4:  storyline_ = (margin <= 2)
+                             ? "An absolute coinflip settled late by " + winner->name + "."
+                             : winner->name + " pull clear of an even matchup.";
+                         break;
+                default: storyline_ = "Neither side blinks until " + winner->name + " find the extra gear."; break;
+            }
+        }
     }
 }
 

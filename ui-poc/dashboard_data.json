@@ -1,0 +1,283 @@
+{
+  "schema_version": 1,
+  "exporter": "VLR Manager Valosim",
+  "club_color": "#2F40D8",
+  "dashboard": {
+    "header": {
+      "club_name": "Mirage",
+      "division": "VCT",
+      "region": "Americas",
+      "year": 2026,
+      "day_in_year": 14,
+      "current_phase": "Stage 1"
+    },
+    "objectives": {
+      "total": 3,
+      "met": 2,
+      "goals": [
+        {
+          "text": "Finish top 10 in the league",
+          "mandatory": true,
+          "met": true,
+          "progress": "currently #9  (need top 10)",
+          "pct": 1.00
+        },
+        {
+          "text": "Develop a U22 talent to OVR 66+",
+          "mandatory": false,
+          "met": false,
+          "progress": "best U22 OVR 61 / 66",
+          "pct": 0.92
+        },
+        {
+          "text": "Stay solvent — end above $400K",
+          "mandatory": false,
+          "met": true,
+          "progress": "$850K / $400K",
+          "pct": 1.00
+        }
+      ]
+    },
+    "kpis": [
+      {
+        "label": "BUDGET",
+        "value": "$850K",
+        "tone": "warn"
+      },
+      {
+        "label": "PHASE RECORD",
+        "value": "1-4",
+        "tone": "warn"
+      },
+      {
+        "label": "REGIONAL RANK",
+        "value": "#10",
+        "tone": "crit"
+      },
+      {
+        "label": "ROSTER OVR",
+        "value": "57",
+        "tone": "crit"
+      },
+      {
+        "label": "NEXT MATCH",
+        "value": "2d",
+        "tone": "neutral",
+        "subline": "vs Glyph"
+      },
+      {
+        "label": "STAR DEPENDENCY",
+        "value": "+0",
+        "tone": "pos"
+      },
+      {
+        "label": "WINDOW",
+        "value": "OPENING",
+        "tone": "info",
+        "subline": "Building"
+      }
+    ],
+    "standings": [
+      {
+        "rank": 1,
+        "team_name": "Specter",
+        "wins": 5,
+        "losses": 0,
+        "ovr": 62.1,
+        "is_user": false
+      },
+      {
+        "rank": 2,
+        "team_name": "Sable",
+        "wins": 4,
+        "losses": 1,
+        "ovr": 58.9,
+        "is_user": false
+      },
+      {
+        "rank": 3,
+        "team_name": "Stellaris",
+        "wins": 4,
+        "losses": 1,
+        "ovr": 58.6,
+        "is_user": false
+      },
+      {
+        "rank": 4,
+        "team_name": "Apex",
+        "wins": 4,
+        "losses": 1,
+        "ovr": 57.7,
+        "is_user": false
+      },
+      {
+        "rank": 5,
+        "team_name": "Nimbus",
+        "wins": 3,
+        "losses": 2,
+        "ovr": 60.6,
+        "is_user": false
+      },
+      {
+        "rank": 6,
+        "team_name": "Solis",
+        "wins": 3,
+        "losses": 2,
+        "ovr": 58.1,
+        "is_user": false
+      },
+      {
+        "rank": 7,
+        "team_name": "Omega",
+        "wins": 2,
+        "losses": 3,
+        "ovr": 56.4,
+        "is_user": false
+      },
+      {
+        "rank": 8,
+        "team_name": "Glyph",
+        "wins": 2,
+        "losses": 3,
+        "ovr": 54.9,
+        "is_user": false
+      },
+      {
+        "rank": 9,
+        "team_name": "Atlantic Storm",
+        "wins": 1,
+        "losses": 4,
+        "ovr": 57.9,
+        "is_user": false
+      },
+      {
+        "rank": 10,
+        "team_name": "Mirage",
+        "wins": 1,
+        "losses": 4,
+        "ovr": 56.8,
+        "is_user": true
+      },
+      {
+        "rank": 11,
+        "team_name": "Sentry",
+        "wins": 1,
+        "losses": 4,
+        "ovr": 56.6,
+        "is_user": false
+      },
+      {
+        "rank": 12,
+        "team_name": "Last Light",
+        "wins": 0,
+        "losses": 5,
+        "ovr": 54.8,
+        "is_user": false
+      }
+    ],
+    "news": [
+      {
+        "year": 2026,
+        "day": 12,
+        "category": "Hot Streak",
+        "headline": "Arcus on a 5-series hot streak."
+      },
+      {
+        "year": 2026,
+        "day": 12,
+        "category": "Hot Streak",
+        "headline": "Cold Mirror on a 5-series hot streak."
+      },
+      {
+        "year": 2026,
+        "day": 12,
+        "category": "Hot Streak",
+        "headline": "Specter on a 5-series hot streak."
+      },
+      {
+        "year": 2026,
+        "day": 12,
+        "category": "Hot Streak",
+        "headline": "Forge on a 5-series hot streak."
+      }
+    ],
+    "star_players": [
+      {
+        "name": "WhiskEdge",
+        "primary_role": "Duelist",
+        "ovr": 63,
+        "avg_rating": 0.98,
+        "kd_ratio": 1.05,
+        "igl": false
+      },
+      {
+        "name": "hazeka",
+        "primary_role": "Duelist",
+        "ovr": 61,
+        "avg_rating": 1.00,
+        "kd_ratio": 1.06,
+        "igl": false
+      },
+      {
+        "name": "lush",
+        "primary_role": "Controller",
+        "ovr": 56,
+        "avg_rating": 0.86,
+        "kd_ratio": 0.84,
+        "igl": false
+      },
+      {
+        "name": "CometPulse",
+        "primary_role": "Sentinel",
+        "ovr": 53,
+        "avg_rating": 1.08,
+        "kd_ratio": 1.04,
+        "igl": false
+      },
+      {
+        "name": "krypto",
+        "primary_role": "Controller",
+        "ovr": 51,
+        "avg_rating": 0.82,
+        "kd_ratio": 0.66,
+        "igl": true
+      }
+    ],
+    "next_match": {
+      "opponent": "Glyph",
+      "opp_ovr": 54.9,
+      "opp_rank": 8,
+      "days_until": 2
+    },
+    "last_5_form": [
+      {
+        "opponent": "",
+        "result": "L",
+        "score": ""
+      },
+      {
+        "opponent": "",
+        "result": "L",
+        "score": ""
+      },
+      {
+        "opponent": "",
+        "result": "L",
+        "score": ""
+      },
+      {
+        "opponent": "",
+        "result": "W",
+        "score": ""
+      },
+      {
+        "opponent": "",
+        "result": "L",
+        "score": ""
+      }
+    ],
+    "budget_trend": [
+      850
+    ]
+  }
+}

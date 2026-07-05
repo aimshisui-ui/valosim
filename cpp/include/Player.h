@@ -5,6 +5,7 @@
 #include "Country.h"
 
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -146,6 +147,10 @@ struct MatchHistoryEntry {
     int    kills   = 0;
     int    deaths  = 0;
     int    assists = 0;
+    // End-of-season OVR snapshot (added for the career trend line). Default 0
+    // for entries stamped before this field existed; the trend renderer skips
+    // any 0 sample so legacy histories degrade gracefully.
+    int    ovr     = 0;
 };
 
 struct ProMatchSnapshot {
@@ -244,8 +249,15 @@ struct ProgressionReport {
 };
 
 struct Contract {
-    int amount_k = 25;
-    int exp_year = 0;
+    int amount_k = 25;          // canonical annual salary in $K (keep FIRST)
+    int exp_year = 0;           // canonical expiry year (keep SECOND)
+    // --- multi-year structure (all default-initialized so Contract stays an
+    //     aggregate and every existing `Contract{}` / member-assignment site
+    //     keeps compiling unchanged) ---
+    int  signing_bonus_k  = 0;  // one-time up-front $K paid at signing (NOT recurring payroll)
+    bool promised_starter = false; // promised a starting-5 slot (roster[0..4])
+    bool promised_role    = false; // promised to keep their current role
+    bool promise_active   = false; // a promise is live; cleared once honored/breached
 };
 
 // Per-agent mastery state. Tracks how much real pro experience a player has
@@ -280,10 +292,26 @@ struct FreeAgentMood {
     std::unordered_map<std::string, double> per_team;
 };
 
+// Smooth off-role penalty multiplier from a 0..1 role_fit_score. Maps a
+// perfect/on-role fit (1.0) -> 1.0 (no penalty), an 0.80 near-fit -> ~0.956
+// (small), and a 0.0 mismatch -> 0.78 (floor). Replaces the old flat 0.85
+// haircut so an ~80%-compatible flex (a duelist who fits most sentinels) is
+// barely penalized, while a true mismatch (a duelist forced onto controller)
+// is meaningfully worse. Used by Team::build_round_selection + the resign
+// role-fit penalty so both scale smoothly with actual compatibility.
+inline double role_fit_penalty_mult(double rf) {
+    double m = 0.78 + 0.22 * rf;
+    return m < 0.78 ? 0.78 : (m > 1.0 ? 1.0 : m);
+}
+
 class Player : public std::enable_shared_from_this<Player> {
 public:
     Player(std::string name, int age, Attributes attrs, std::string region,
            int potential = -1, int work_ethic = -1, int consistency = -1);
+
+    // Stable, unique, never-reused id (stamped from next_entity_id() in the
+    // ctor). The save-system cross-reference handle; also a robust deep-link key.
+    std::uint64_t id = 0;
 
     std::string name;       // gamertag / handle — primary display name
     std::string first;      // legal first name
@@ -301,6 +329,30 @@ public:
     GrowthArchetype growth_archetype = GrowthArchetype::Standard;
     int  peak_age = 24;
     RookieArchetype rookie_archetype = RookieArchetype::None;
+
+    // === Personality scalars (1-99, 50 = neutral) =========================
+    // Drive BOTH contract demands (the asking price) AND negotiation behavior
+    // (accept / counter / suitor-switch). Seeded in generate_player from
+    // attributes + age + Desire archetype; default 50 keeps any directly-
+    // constructed Player perfectly neutral. See requested_salary_k /
+    // evaluate_resign_offer for how each is consumed.
+    //   ambition — wants a winning team + a guaranteed role; penalizes weak teams.
+    //   loyalty  — discount to re-sign with the current team; resists outside suitors.
+    //   greed    — raises the salary demand; harsher on below-ask offers.
+    //   ego      — wants to be paid/used like a star; sharp reaction to lowballs/role cuts.
+    int  ambition = 50;
+    int  loyalty  = 50;
+    int  greed    = 50;
+    int  ego      = 50;
+
+    // FM-style FAME / STATURE — hidden, 1..10000. Measures how well-KNOWN a player is
+    // (not raw skill). Drives transfer cost + wage demands, GATES transfer interest (a
+    // low-stature club can't attract a high-reputation player; a tier-3 club won't chase
+    // a tier-1-rep player), and LAGS reality — it's seeded at generation from OVR/age (a
+    // career-standing proxy) and then drifts slowly each season toward a target built
+    // from OVR + trophies + international form (see save_history_and_progress). A newly
+    // promoted club's players take multiple seasons for their reputation to catch up.
+    int  reputation = 3000;
 
     // Stable per-player simulation-driving playstyle. Assigned ONCE at
     // generation (see generate_player) from role + attributes +
@@ -323,6 +375,10 @@ public:
     // Solid flex: 4-5. True one-trick: 1-2. Ultra-flex (~0.1%): 6-7.
     // Rolled once at spawn, persists for career.
     int  agent_pool_size = 3;
+    // Minimum agents OUTSIDE the primary role that update_agent_pool reserves,
+    // so a typical pro flexes (VCT-accurate). Flex archetypes bump this to 3;
+    // one/two-trick pools (size<=2) ignore it. Default 2.
+    int  cross_role_min = 2;
 
     // IGL flag — set once at generation (or when promoted by team logic).
     // Players flagged as IGLs trade fragging power (-Aim/-HS/-Entry) for
@@ -356,6 +412,10 @@ public:
     int  tend_adaptive        = 50;     // adaptive vs structured
 
     Attributes attributes{};
+    // Per-attribute fractional growth/decline carry for apply_monthly_progression
+    // so slow age curves (e.g. +0.09/month) accumulate and eventually land
+    // instead of rounding to 0 every monthly tick.
+    std::array<double, kAttrCount> attr_growth_carry{};
 
     std::string team_name = "Free Agent";
     // SNAPSHOT of the original duration agreed at signing. Set ONCE per
@@ -394,8 +454,37 @@ public:
     }
 
     FreeAgentMood  mood{};
+    // GLOBAL discontent (0..1) — distinct from the per-org `mood` (which is
+    // negotiation memory). Driven up at year-end by being benched on a starter
+    // promise, low playtime, and a losing/relegated season (scaled by ego /
+    // ambition), and decayed by a good season. At >= 0.6 the player hands in a
+    // TRANSFER REQUEST: AI orgs will shop/sell them at a discount, and the user
+    // sees a badge + can listen to offers. Cleared when re-signed happily, sold,
+    // or after a strong season. See save_history_and_progress.
+    double discontent           = 0.0;
+    bool   transfer_requested   = false;
+    int    transfer_request_year = 0;
+
+    // === Anti-dynasty roster-churn state (never-free POD) ===
+    // restlessness is DISTINCT from discontent: discontent = grievance
+    // (benched / losing, manageable); restlessness = the success+ambition itch
+    // that makes ego/mercenary stars leave even a WINNING, well-managed team.
+    // Either can independently raise transfer_requested.
+    int    joined_year          = 0;    // org-tenure anchor (set in sign_player)
+    int    tenure_years_at_org  = 0;    // year-end = current_year - joined_year
+    int    titles_with_org      = 0;    // reg+masters+world won WHILE on this org
+    int    last_org_title_count = 0;    // org trophy total at last year-end (delta)
+    double restlessness         = 0.0;  // 0..1 "outgrown this" meter
     std::vector<std::pair<int,int>> salary_log;
     ProgressionSnapshot last_snapshot{};   // baseline for next monthly tick
+
+    // === Scouting fog-of-war ==============================================
+    // When false, the UI shows this player's POTENTIAL as a fuzzy BAND (derived
+    // deterministically from id so it never flickers) instead of the exact
+    // number — signing an unscouted player is a calculated risk. Set true once
+    // the user's org spends a scouting assignment on them; players on the user's
+    // OWN roster are always treated as scouted (you know your own talent).
+    bool   potential_scouted    = false;
 
     int    career_kills = 0, career_deaths = 0, career_assists = 0;
     int    career_fb = 0, career_fd = 0, career_survivals = 0, career_trades = 0, career_rounds = 0;
@@ -423,11 +512,53 @@ public:
     // career_max_ovr force-retires regardless of the logistic stage-1 roll.
     int    career_max_ovr = 0;
 
+    // === Development trajectory (item 8) ===
+    // Stamped at each monthly progression tick (NOT recomputed live every
+    // frame), so the indicator is stable between ticks and reflects REAL recent
+    // movement: OVR delta since last tick + recent 30-day form + potential gap
+    // + age. The engine sets the CLASS (a pure signal); the GUI maps it to a
+    // label + color (color constants live in gui_main, not the engine).
+    enum class TrajClass {
+        Established,   // steady, no strong signal
+        FutureStar,    // young, elite ceiling, not regressing
+        Rising,        // young-ish, climbing toward a real ceiling
+        Developing,    // slow positive growth
+        Slump,         // high ceiling but underperforming NOW (a bench/develop flag)
+        Declining,     // veteran losing OVR
+        Twilight       // late-career, near ceiling
+    };
+    TrajClass trajectory_class = TrajClass::Established;
+    int    ovr_at_last_tick = 0;     // OVR snapshot at last tick (delta base)
+    double last_form_rating = 0.0;   // cached recent 30-day window rating
+
     int    season_kills = 0, season_deaths = 0, season_assists = 0;
     int    season_fb = 0, season_fd = 0, season_survivals = 0, season_trades = 0, season_rounds = 0;
     int    season_rounds_with_kast = 0;  // binary per-round KAST flag, summed
     int    season_matches = 0;
     double season_rating_total = 0.0;
+    // Season damage + headshot feeds (parallel to career_damage/career_hs_hits)
+    // so the regular-season stats board can show ADR + HS% per player. Reset
+    // at year-end alongside the other season_* counters.
+    int    season_damage = 0;
+    int    season_hs_hits = 0;
+
+    // === Per-tournament stat buckets (item 1: tournament-scoped stats) ===
+    // The season_* counters above aggregate every pro match in the year (and
+    // were the source of the "stats merged across all regions/events" bug).
+    // tourn_stats keys each map's stats by a collapsed tournament identity
+    // ("<region> Split N|<year>" — STAGE league + REGIONALS playoff combined;
+    // each international Masters/Champions separate) so any view can scope to
+    // one tournament. Accumulates across years (~5 buckets/year); POD only, so
+    // it respects the never-free invariant. Written at the single Match
+    // stat-write-back beside the season_*/career_* writes.
+    struct TournStatLine {
+        int maps = 0, matches = 0, rounds = 0;
+        int kills = 0, deaths = 0, assists = 0;
+        int fb = 0, fd = 0, survivals = 0, trades = 0, rounds_with_kast = 0;
+        int damage = 0, hs_hits = 0;
+        double rating_total = 0.0;
+    };
+    std::unordered_map<std::string, TournStatLine> tourn_stats;
 
     // === IGL strategic impact ===
     // Accumulated across pro matches. Each pro match for which the player is
@@ -451,6 +582,23 @@ public:
     // Bumped at the Match.cpp end-of-match block (event-name keyed) and
     // reset at year-end alongside the other season_* counters.
     int    season_pressure_matches = 0;
+    // Maps played at an international (Masters/Champions) this season — real
+    // ATTENDANCE, distinct from winning a title. Feeds awards SoS weighting.
+    // Reset year-end alongside the other season_* counters.
+    int    season_intl_matches = 0;
+
+    // === Off-role play accounting (Realism&Polish P4.0) ===================
+    // How much this player was deployed OFF his primary_role this season, and
+    // how well it went. Written at the per-match stat-transfer site; consumed by
+    // Flex of the Year (P5.2) and the chronic off-role discontent term (P5.1).
+    // Reset year-end alongside the other season_* counters. POD only.
+    int    season_offrole_matches = 0;      // maps played NOT on primary_role
+    double season_offrole_rating_total = 0.0;
+    // Indexed by ROLE ordering (Duelist=0, Initiator=1, Controller=2,
+    // Sentinel=3) — NOT Position. The Match write-back + the [0,4) guard rely on
+    // exactly 4 core roles; pin that here so a future Role change is caught.
+    static_assert(static_cast<int>(Role::Count) == 4, "season_role_maps assumes 4 core roles");
+    std::array<int, 4> season_role_maps{};  // maps played per core role index
 
     // Per-season clutch points (1vN closures). Aggregated at end-of-match
     // from PlayerMatchStats::clutch_pts so the MVP formula has a "shows up
@@ -535,6 +683,17 @@ public:
     //
     // Pure read function, no rng, no state mutation.
     double role_fit_score(Role r) const;
+
+    // agent_fit_score(a) returns a 0.0..1.0 compatibility for a SPECIFIC agent
+    // (vs role_fit_score's role-generic profile), using the agent's own
+    // signature attributes (a1/a2/a3) on the same weighting get_rating uses.
+    // This is what makes a Controller a natural Killjoy/Sova flex — those
+    // agents key on Utility/GameSense/Anchor, which a Controller has, even
+    // though the GENERIC Sentinel/Initiator role profile (Positioning/Clutch/
+    // Entry/...) would read as a poor fit. Used by the off-role match penalty
+    // so a forced flex is judged on the agent actually handed to the player.
+    // Pure read, no rng. (Declared after get_rating so Agent is in scope.)
+    double agent_fit_score(const Agent& a) const noexcept;
 
     // Coarse band over role_fit_score, in plain English for UI chips:
     //   1.00       -> "Natural"     (primary_role exactly)
@@ -622,9 +781,12 @@ public:
         int salary_mod      = 0;   // delta vs player's ask (monotonic in offer)
         int prestige_mod    = 0;
         int contender_mod   = 0;   // window/strategy fit
-        int loyalty_mod     = 0;   // tenure + Loyal archetype
+        int loyalty_mod     = 0;   // tenure + Loyal archetype + loyalty personality
         int years_mod       = 0;   // contract length vs preference
         int desire_mod      = 0;   // archetype hard gates / soft pressure
+        int personality_mod = 0;   // ambition/greed/ego lean on this offer
+        int bonus_mod       = 0;   // signing-bonus sweetener (amortized)
+        int promise_mod     = 0;   // starter / role guarantee sweetener
         int total           = 0;   // sum, clamped [0, 100] — acceptance probability proxy
         bool will_accept    = false;
         // One-of: "INSULTING", "WEAK", "FAIR", "STRONG", "OVERPAY".
@@ -633,6 +795,15 @@ public:
         std::vector<std::pair<std::string, int>> labels;
         // If !will_accept, the primary reason in one line. "" if accepted.
         std::string reject_reason;
+        // The player's own asking price for this deal (so the UI can show
+        // "your offer vs ask"). Set by evaluate_resign_offer.
+        int ask_k = 0;
+        // COUNTER-OFFER (set only when the offer is a near-miss): the minimum
+        // terms the player WOULD accept. has_counter=false for far-off offers
+        // (no counter) and for accepted offers.
+        bool has_counter      = false;
+        int  counter_amount_k = 0;
+        int  counter_years    = 0;
     };
     ResignBreakdown evaluate_resign_offer(int amount_k, int years,
                                           const Team& team) const;
@@ -645,6 +816,63 @@ public:
     ResignBreakdown evaluate_resign_offer(int amount_k, int years,
                                           const Team& team,
                                           Role offered_role) const;
+
+    // 6-arg overload — the full deal: offered role + signing bonus + a promised
+    // starter slot. The 3/4-arg overloads delegate here with bonus=0,
+    // promise=false, so every existing call site is unchanged. Bonus and
+    // promise are monotonic sweeteners (a bigger bonus / a starter guarantee
+    // never lowers acceptance), preserving the score invariant above.
+    ResignBreakdown evaluate_resign_offer(int amount_k, int years,
+                                          const Team& team, Role offered_role,
+                                          int signing_bonus_k,
+                                          bool promise_starter) const;
+
+    // Record that the user made an offer the player rejected. Lowball/insulting
+    // offers bump the player's mood against the team and stiffen their next ask
+    // (kills the free reject-retry exploit). Returns the offer "tier" for UI:
+    //   0 = reasonable miss, 1 = lowball, 2 = insulting. No-op-safe to call once
+    //   per rejected Send.
+    int register_rejected_offer(int amount_k, int years, const Team& team);
+
+    // === Value inputs for the asking price ================================
+    // perf_score: recent on-server performance, ~0.6 (poor) .. ~1.6 (elite),
+    //   blending season + career VLR rating with a recency tilt.
+    // accolade_score: career hardware, 0 (none) .. ~1.0+ (decorated), from
+    //   MVPs / international titles / award counts.
+    // Both feed requested_salary_k so pay tracks OVR + form + trophies.
+    double perf_score() const;
+    double accolade_score() const;
+
+    // === Detailed, viewable player MOOD ====================================
+    // A composite happiness 0..100 with a transparent per-factor breakdown (the
+    // same shape as ResignBreakdown) so the UI can show the user WHY a player is
+    // happy/unhappy. Weighs team form, the player's own form, the club's
+    // history/prestige, their personality (greed/ambition), their teammates'
+    // personalities, team chemistry, playtime, and any standing grievance
+    // (per-org mood + global discontent). PURE/const — safe to call per frame.
+    struct MoodBreakdown {
+        int base_score      = 50;
+        int team_perf_mod   = 0;   // team win% / standing
+        int own_perf_mod    = 0;   // own season rating vs baseline
+        int history_mod     = 0;   // club prestige / dynasty pedigree
+        int chemistry_mod   = 0;   // bonds with the current roster
+        int teammate_mod    = 0;   // friction with high-ego teammates
+        int personality_mod = 0;   // greed vs pay, ambition vs a weak team
+        int playtime_mod    = 0;   // matches played vs a starter's share
+        int grievance_mod   = 0;   // standing per-org mood + global discontent (<=0)
+        int total           = 0;   // clamped [0,100]
+        const char* verdict = "CONTENT";  // MISERABLE/UNHAPPY/CONTENT/HAPPY/THRIVING
+        std::vector<std::pair<std::string, int>> labels;  // nonzero factors for UI
+    };
+    MoodBreakdown mood_breakdown(const Team& team, int current_year) const;
+    int overall_mood(const Team& team, int current_year) const;  // convenience: .total
+
+    // Centralised "is this player's recent form a concern?" check. Returns
+    // true if the player has enough season sample (>= 4 matches) AND their
+    // season rating average is below the 0.95 baseline. Single source of
+    // truth so the Manager "AT RISK" column and any AI consumer that wants
+    // to gate on the same signal can't drift.
+    bool is_form_at_risk() const noexcept;
 
     // === Desire-driven negotiation modifiers ==============================
     // These three accessors are the ONLY surface the Team-side signing
@@ -684,6 +912,14 @@ public:
     void check_dynamic_badges();
     void save_history_and_progress(int year, std::string_view team_placement = "N/A");
     void apply_attribute_delta(Attr a, int delta);
+
+    // GOD-MODE badge toggle (web sandbox tool). on=true adds the named badge (and
+    // applies its attribute mods, idempotent if already held); on=false removes it
+    // and REVERSES its mods. Returns false for an unknown badge name, or when
+    // removing a badge the player doesn't have. Like the attribute editor it
+    // intentionally mutates the player (OVR recomputes from attributes) but only
+    // in the user's session world. Returns true on a state change (or idempotent add).
+    bool god_set_badge(std::string_view name, bool on);
 
     // Mastery hook — called by Match.cpp at the end-of-match stat-transfer
     // step (ONCE per (player, match), pro matches only — not solo Q, not
@@ -933,5 +1169,11 @@ const char* position_name(Position p) noexcept;
 // is_flex is NOT consulted — Flex is an orthogonal SUB-ROLE overlay.
 // Pure read function, no state mutation.
 Position position_of(const Player& p) noexcept;
+
+// WS-A INC-0: is this player established enough to belong on the open market as
+// a cross-region ("international") free agent? Raw foreign youth come up through
+// the soloq -> Tier-3 pipeline instead; only proven players move internationally.
+// (Caller decides region-mismatch; this is purely the "established" bar.)
+bool is_internationally_marketable(const Player& p);
 
 }  // namespace vlr

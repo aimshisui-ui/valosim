@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "exporter": "VLR Manager Valosim",
-  "exporter_notes": "rating is VLR-style; ACS estimated from rating+ADR; utility_impact not tracked",
-  "match_id": "94281dc8f6f531f6",
+  "exporter_notes": "rating is VLR-style; ACS estimated from rating+ADR; utility_impact not tracked. v2 adds per-map round_history (round-by-round winner/score/economy + spike/defuse end_kind, a deterministic narrative layer).",
+  "match_id": "f2b3e4d2355a8dfc",
   "event": "Test Event",
   "series_type": "BO3",
   "best_of": 3,
@@ -12,16 +12,16 @@
   },
   "teams": {
     "team1": {
-      "name": "Wolfhold",
-      "tag": "WOL",
+      "name": "Distant Vipers",
+      "tag": "DVI",
       "region": "Pacific",
-      "country": "Thailand"
+      "country": "Australia"
     },
     "team2": {
-      "name": "Velvet Renegades",
-      "tag": "VRE",
+      "name": "Phantom-Twelve",
+      "tag": "PTW",
       "region": "Pacific",
-      "country": "Japan"
+      "country": "South Korea"
     }
   },
   "final_score": {
@@ -32,647 +32,1259 @@
   "maps": [
     {
       "map_number": 1,
-      "map_name": "Sunset",
+      "map_name": "Fracture",
       "score": {
-        "team1": 3,
+        "team1": 5,
         "team2": 13
       },
       "winner": "team2",
-      "rounds_played": 16,
+      "rounds_played": 18,
       "overtime": false,
-      "mvp": "ApexWolf",
+      "mvp": "OmenSnow",
       "players": {
         "team1": [
           {
-            "name": "Zephyr",
+            "name": "Rapid231",
+            "agent": "Sova",
+            "role": "Initiator",
+            "is_igl": true,
+            "k": 23,
+            "d": 16,
+            "a": 2,
+            "rating": 1.42,
+            "acs": 414,
+            "acs_estimated": true,
+            "adr": 260,
+            "hs_pct": 43,
+            "fb": 1,
+            "fd": 0,
+            "fk_fd_diff": 1,
+            "fb_pct": 100,
+            "kast_pct": 61,
+            "clutches": 1,
+            "damage": 4673,
+            "max_round_dmg": 826,
+            "multi_kills": {
+              "2k": 2,
+              "3k": 2,
+              "4k": 1,
+              "5k": 1
+            },
+            "rounds_played": 18
+          },
+          {
+            "name": "Reign516",
             "agent": "Neon",
             "role": "Duelist",
             "is_igl": false,
-            "k": 13,
-            "d": 15,
+            "k": 8,
+            "d": 16,
             "a": 0,
-            "rating": 0.81,
-            "acs": 226,
+            "rating": 0.59,
+            "acs": 179,
             "acs_estimated": true,
-            "adr": 129,
-            "hs_pct": 30,
-            "fb": 7,
-            "fd": 5,
-            "fk_fd_diff": 2,
-            "fb_pct": 58,
-            "kast_pct": 56,
-            "clutches": 0,
-            "damage": 2056,
-            "max_round_dmg": 498,
+            "adr": 122,
+            "hs_pct": 25,
+            "fb": 2,
+            "fd": 6,
+            "fk_fd_diff": -4,
+            "fb_pct": 25,
+            "kast_pct": 33,
+            "clutches": 1,
+            "damage": 2195,
+            "max_round_dmg": 486,
             "multi_kills": {
-              "2k": 2,
+              "2k": 0,
               "3k": 1,
               "4k": 0,
               "5k": 0
             },
-            "rounds_played": 16
+            "rounds_played": 18
           },
           {
-            "name": "Blaze90",
-            "agent": "Clove",
-            "role": "Controller",
+            "name": "LemurSnow",
+            "agent": "Deadlock",
+            "role": "Sentinel",
             "is_igl": false,
-            "k": 7,
+            "k": 8,
             "d": 16,
-            "a": 1,
-            "rating": 0.48,
-            "acs": 130,
+            "a": 0,
+            "rating": 0.61,
+            "acs": 183,
             "acs_estimated": true,
-            "adr": 69,
-            "hs_pct": 57,
-            "fb": 1,
+            "adr": 121,
+            "hs_pct": 50,
+            "fb": 0,
             "fd": 0,
-            "fk_fd_diff": 1,
-            "fb_pct": 100,
-            "kast_pct": 44,
-            "clutches": 0,
-            "damage": 1098,
-            "max_round_dmg": 303,
+            "fk_fd_diff": 0,
+            "fb_pct": 0,
+            "kast_pct": 28,
+            "clutches": 1,
+            "damage": 2179,
+            "max_round_dmg": 336,
             "multi_kills": {
-              "2k": 1,
+              "2k": 3,
               "3k": 0,
               "4k": 0,
               "5k": 0
             },
-            "rounds_played": 16
+            "rounds_played": 18
           },
           {
-            "name": "Plumeio",
-            "agent": "Killjoy",
-            "role": "Sentinel",
+            "name": "KodaEdge",
+            "agent": "Harbor",
+            "role": "Controller",
             "is_igl": false,
-            "k": 5,
-            "d": 15,
-            "a": 2,
-            "rating": 0.47,
-            "acs": 121,
+            "k": 8,
+            "d": 16,
+            "a": 0,
+            "rating": 0.71,
+            "acs": 204,
             "acs_estimated": true,
-            "adr": 55,
-            "hs_pct": 40,
+            "adr": 124,
+            "hs_pct": 62,
             "fb": 1,
             "fd": 1,
             "fk_fd_diff": 0,
             "fb_pct": 50,
-            "kast_pct": 38,
+            "kast_pct": 39,
             "clutches": 0,
-            "damage": 879,
-            "max_round_dmg": 221,
+            "damage": 2226,
+            "max_round_dmg": 532,
             "multi_kills": {
               "2k": 0,
-              "3k": 0,
-              "4k": 0,
-              "5k": 0
-            },
-            "rounds_played": 16
-          },
-          {
-            "name": "echo",
-            "agent": "Skye",
-            "role": "Initiator",
-            "is_igl": false,
-            "k": 12,
-            "d": 15,
-            "a": 0,
-            "rating": 0.90,
-            "acs": 238,
-            "acs_estimated": true,
-            "adr": 116,
-            "hs_pct": 33,
-            "fb": 1,
-            "fd": 0,
-            "fk_fd_diff": 1,
-            "fb_pct": 100,
-            "kast_pct": 44,
-            "clutches": 0,
-            "damage": 1858,
-            "max_round_dmg": 473,
-            "multi_kills": {
-              "2k": 3,
               "3k": 1,
               "4k": 0,
               "5k": 0
             },
-            "rounds_played": 16
+            "rounds_played": 18
           },
           {
-            "name": "GlintPulse",
-            "agent": "Vyse",
-            "role": "Sentinel",
-            "is_igl": true,
-            "k": 4,
-            "d": 15,
-            "a": 1,
-            "rating": 0.24,
-            "acs": 68,
+            "name": "Arc8",
+            "agent": "Phoenix",
+            "role": "Duelist",
+            "is_igl": false,
+            "k": 9,
+            "d": 17,
+            "a": 0,
+            "rating": 0.69,
+            "acs": 209,
             "acs_estimated": true,
-            "adr": 39,
-            "hs_pct": 25,
-            "fb": 0,
-            "fd": 0,
-            "fk_fd_diff": 0,
-            "fb_pct": 0,
-            "kast_pct": 19,
+            "adr": 142,
+            "hs_pct": 66,
+            "fb": 2,
+            "fd": 5,
+            "fk_fd_diff": -3,
+            "fb_pct": 28,
+            "kast_pct": 39,
             "clutches": 0,
-            "damage": 629,
-            "max_round_dmg": 316,
+            "damage": 2557,
+            "max_round_dmg": 599,
             "multi_kills": {
-              "2k": 2,
-              "3k": 0,
+              "2k": 1,
+              "3k": 1,
               "4k": 0,
               "5k": 0
             },
-            "rounds_played": 16
+            "rounds_played": 18
           }
         ],
         "team2": [
           {
-            "name": "quartz",
-            "agent": "Yoru",
-            "role": "Duelist",
-            "is_igl": false,
-            "k": 13,
-            "d": 9,
-            "a": 1,
-            "rating": 1.17,
-            "acs": 297,
-            "acs_estimated": true,
-            "adr": 126,
-            "hs_pct": 30,
-            "fb": 4,
-            "fd": 4,
-            "fk_fd_diff": 0,
-            "fb_pct": 50,
-            "kast_pct": 63,
-            "clutches": 0,
-            "damage": 2019,
-            "max_round_dmg": 446,
-            "multi_kills": {
-              "2k": 2,
-              "3k": 1,
-              "4k": 0,
-              "5k": 0
-            },
-            "rounds_played": 16
-          },
-          {
-            "name": "Salt6",
-            "agent": "Vyse",
-            "role": "Sentinel",
-            "is_igl": false,
-            "k": 18,
-            "d": 7,
-            "a": 4,
-            "rating": 1.65,
-            "acs": 421,
-            "acs_estimated": true,
-            "adr": 181,
-            "hs_pct": 55,
-            "fb": 0,
-            "fd": 0,
-            "fk_fd_diff": 0,
-            "fb_pct": 0,
-            "kast_pct": 75,
-            "clutches": 0,
-            "damage": 2902,
-            "max_round_dmg": 504,
-            "multi_kills": {
-              "2k": 3,
-              "3k": 3,
-              "4k": 0,
-              "5k": 0
-            },
-            "rounds_played": 16
-          },
-          {
-            "name": "ApexWolf",
-            "agent": "Fade",
+            "name": "dicex",
+            "agent": "Gekko",
             "role": "Initiator",
             "is_igl": true,
-            "k": 22,
-            "d": 5,
-            "a": 5,
-            "rating": 1.91,
-            "acs": 494,
+            "k": 19,
+            "d": 15,
+            "a": 2,
+            "rating": 1.21,
+            "acs": 356,
             "acs_estimated": true,
-            "adr": 224,
-            "hs_pct": 18,
-            "fb": 1,
-            "fd": 2,
-            "fk_fd_diff": -1,
-            "fb_pct": 33,
-            "kast_pct": 75,
+            "adr": 227,
+            "hs_pct": 31,
+            "fb": 5,
+            "fd": 1,
+            "fk_fd_diff": 4,
+            "fb_pct": 83,
+            "kast_pct": 78,
             "clutches": 0,
-            "damage": 3576,
-            "max_round_dmg": 822,
+            "damage": 4092,
+            "max_round_dmg": 433,
             "multi_kills": {
-              "2k": 2,
-              "3k": 3,
+              "2k": 5,
+              "3k": 0,
               "4k": 0,
-              "5k": 1
+              "5k": 0
             },
-            "rounds_played": 16
+            "rounds_played": 18
           },
           {
-            "name": "ion",
-            "agent": "Killjoy",
-            "role": "Sentinel",
+            "name": "TerraCore",
+            "agent": "Harbor",
+            "role": "Controller",
             "is_igl": false,
-            "k": 17,
-            "d": 8,
-            "a": 3,
-            "rating": 1.42,
-            "acs": 372,
+            "k": 14,
+            "d": 11,
+            "a": 0,
+            "rating": 0.95,
+            "acs": 269,
             "acs_estimated": true,
-            "adr": 176,
-            "hs_pct": 11,
+            "adr": 158,
+            "hs_pct": 42,
             "fb": 0,
             "fd": 0,
             "fk_fd_diff": 0,
             "fb_pct": 0,
-            "kast_pct": 81,
+            "kast_pct": 56,
             "clutches": 0,
-            "damage": 2823,
-            "max_round_dmg": 624,
+            "damage": 2841,
+            "max_round_dmg": 645,
             "multi_kills": {
               "2k": 3,
               "3k": 0,
               "4k": 1,
               "5k": 0
             },
-            "rounds_played": 16
+            "rounds_played": 18
           },
           {
-            "name": "cy4n",
-            "agent": "Harbor",
-            "role": "Controller",
+            "name": "OmenSnow",
+            "agent": "Neon",
+            "role": "Duelist",
             "is_igl": false,
-            "k": 6,
-            "d": 12,
-            "a": 2,
-            "rating": 0.69,
-            "acs": 170,
+            "k": 26,
+            "d": 8,
+            "a": 1,
+            "rating": 1.73,
+            "acs": 475,
             "acs_estimated": true,
-            "adr": 65,
-            "hs_pct": 16,
-            "fb": 1,
-            "fd": 4,
-            "fk_fd_diff": -3,
-            "fb_pct": 20,
-            "kast_pct": 44,
-            "clutches": 0,
-            "damage": 1039,
-            "max_round_dmg": 391,
+            "adr": 259,
+            "hs_pct": 26,
+            "fb": 7,
+            "fd": 3,
+            "fk_fd_diff": 4,
+            "fb_pct": 70,
+            "kast_pct": 78,
+            "clutches": 1,
+            "damage": 4659,
+            "max_round_dmg": 518,
             "multi_kills": {
-              "2k": 1,
+              "2k": 8,
+              "3k": 2,
+              "4k": 0,
+              "5k": 0
+            },
+            "rounds_played": 18
+          },
+          {
+            "name": "phaseay",
+            "agent": "Vyse",
+            "role": "Sentinel",
+            "is_igl": false,
+            "k": 12,
+            "d": 10,
+            "a": 3,
+            "rating": 0.93,
+            "acs": 255,
+            "acs_estimated": true,
+            "adr": 138,
+            "hs_pct": 66,
+            "fb": 0,
+            "fd": 0,
+            "fk_fd_diff": 0,
+            "fb_pct": 0,
+            "kast_pct": 67,
+            "clutches": 1,
+            "damage": 2487,
+            "max_round_dmg": 346,
+            "multi_kills": {
+              "2k": 4,
               "3k": 0,
               "4k": 0,
               "5k": 0
             },
-            "rounds_played": 16
+            "rounds_played": 18
+          },
+          {
+            "name": "Nomad103",
+            "agent": "Sage",
+            "role": "Sentinel",
+            "is_igl": false,
+            "k": 10,
+            "d": 12,
+            "a": 1,
+            "rating": 0.76,
+            "acs": 220,
+            "acs_estimated": true,
+            "adr": 137,
+            "hs_pct": 30,
+            "fb": 0,
+            "fd": 2,
+            "fk_fd_diff": -2,
+            "fb_pct": 0,
+            "kast_pct": 44,
+            "clutches": 1,
+            "damage": 2458,
+            "max_round_dmg": 739,
+            "multi_kills": {
+              "2k": 1,
+              "3k": 0,
+              "4k": 1,
+              "5k": 0
+            },
+            "rounds_played": 18
           }
         ]
-      }
+      },
+      "round_history": [
+        {
+          "round": 1,
+          "winner": "team1",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 0
+          },
+          "economy": {
+            "team1_invest": 4000,
+            "team2_invest": 4000
+          }
+        },
+        {
+          "round": 2,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 1
+          },
+          "economy": {
+            "team1_invest": 1900,
+            "team2_invest": 1000
+          }
+        },
+        {
+          "round": 3,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 2
+          },
+          "economy": {
+            "team1_invest": 19500,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 4,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 3
+          },
+          "economy": {
+            "team1_invest": 2000,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 5,
+          "winner": "team2",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 4
+          },
+          "economy": {
+            "team1_invest": 27600,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 6,
+          "winner": "team2",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 5
+          },
+          "economy": {
+            "team1_invest": 14500,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 7,
+          "winner": "team1",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 5
+          },
+          "economy": {
+            "team1_invest": 14500,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 8,
+          "winner": "team2",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 6
+          },
+          "economy": {
+            "team1_invest": 1900,
+            "team2_invest": 1000
+          }
+        },
+        {
+          "round": 9,
+          "winner": "team1",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 3,
+            "team2": 6
+          },
+          "economy": {
+            "team1_invest": 19500,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 10,
+          "winner": "team2",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 3,
+            "team2": 7
+          },
+          "economy": {
+            "team1_invest": 15000,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 11,
+          "winner": "team1",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 4,
+            "team2": 7
+          },
+          "economy": {
+            "team1_invest": 1000,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 12,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 4,
+            "team2": 8
+          },
+          "economy": {
+            "team1_invest": 26600,
+            "team2_invest": 12000
+          }
+        },
+        {
+          "round": 13,
+          "winner": "team1",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 5,
+            "team2": 8
+          },
+          "economy": {
+            "team1_invest": 4000,
+            "team2_invest": 4000
+          }
+        },
+        {
+          "round": 14,
+          "winner": "team2",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 5,
+            "team2": 9
+          },
+          "economy": {
+            "team1_invest": 1900,
+            "team2_invest": 1000
+          }
+        },
+        {
+          "round": 15,
+          "winner": "team2",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 5,
+            "team2": 10
+          },
+          "economy": {
+            "team1_invest": 19500,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 16,
+          "winner": "team2",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 5,
+            "team2": 11
+          },
+          "economy": {
+            "team1_invest": 2000,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 17,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 5,
+            "team2": 12
+          },
+          "economy": {
+            "team1_invest": 27600,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 18,
+          "winner": "team2",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 5,
+            "team2": 13
+          },
+          "economy": {
+            "team1_invest": 14500,
+            "team2_invest": 15000
+          }
+        }
+      ]
     },
     {
       "map_number": 2,
-      "map_name": "Bind",
+      "map_name": "Sunset",
       "score": {
-        "team1": 9,
+        "team1": 7,
         "team2": 13
       },
       "winner": "team2",
-      "rounds_played": 22,
+      "rounds_played": 20,
       "overtime": false,
-      "mvp": "ApexWolf",
+      "mvp": "OmenSnow",
       "players": {
         "team1": [
           {
-            "name": "Zephyr",
-            "agent": "Iso",
-            "role": "Duelist",
-            "is_igl": false,
-            "k": 23,
-            "d": 20,
-            "a": 0,
-            "rating": 1.18,
-            "acs": 315,
-            "acs_estimated": true,
-            "adr": 158,
-            "hs_pct": 34,
-            "fb": 9,
-            "fd": 7,
-            "fk_fd_diff": 2,
-            "fb_pct": 56,
-            "kast_pct": 55,
-            "clutches": 0,
-            "damage": 3483,
-            "max_round_dmg": 495,
-            "multi_kills": {
-              "2k": 5,
-              "3k": 3,
-              "4k": 0,
-              "5k": 0
-            },
-            "rounds_played": 22
-          },
-          {
-            "name": "Blaze90",
-            "agent": "Viper",
-            "role": "Controller",
-            "is_igl": false,
-            "k": 19,
-            "d": 18,
-            "a": 1,
-            "rating": 0.95,
-            "acs": 258,
-            "acs_estimated": true,
-            "adr": 137,
-            "hs_pct": 36,
-            "fb": 2,
-            "fd": 0,
-            "fk_fd_diff": 2,
-            "fb_pct": 100,
-            "kast_pct": 50,
-            "clutches": 0,
-            "damage": 3003,
-            "max_round_dmg": 795,
-            "multi_kills": {
-              "2k": 1,
-              "3k": 2,
-              "4k": 0,
-              "5k": 1
-            },
-            "rounds_played": 22
-          },
-          {
-            "name": "Plumeio",
-            "agent": "Killjoy",
-            "role": "Sentinel",
-            "is_igl": false,
-            "k": 14,
-            "d": 18,
-            "a": 2,
-            "rating": 0.94,
-            "acs": 240,
-            "acs_estimated": true,
-            "adr": 104,
-            "hs_pct": 21,
-            "fb": 0,
-            "fd": 0,
-            "fk_fd_diff": 0,
-            "fb_pct": 0,
-            "kast_pct": 64,
-            "clutches": 0,
-            "damage": 2282,
-            "max_round_dmg": 452,
-            "multi_kills": {
-              "2k": 1,
-              "3k": 1,
-              "4k": 0,
-              "5k": 0
-            },
-            "rounds_played": 22
-          },
-          {
-            "name": "echo",
-            "agent": "Skye",
-            "role": "Initiator",
-            "is_igl": false,
-            "k": 19,
-            "d": 21,
-            "a": 3,
-            "rating": 0.89,
-            "acs": 246,
-            "acs_estimated": true,
-            "adr": 135,
-            "hs_pct": 42,
-            "fb": 0,
-            "fd": 2,
-            "fk_fd_diff": -2,
-            "fb_pct": 0,
-            "kast_pct": 64,
-            "clutches": 0,
-            "damage": 2973,
-            "max_round_dmg": 536,
-            "multi_kills": {
-              "2k": 4,
-              "3k": 1,
-              "4k": 0,
-              "5k": 0
-            },
-            "rounds_played": 22
-          },
-          {
-            "name": "GlintPulse",
-            "agent": "Harbor",
-            "role": "Controller",
-            "is_igl": true,
-            "k": 11,
-            "d": 17,
-            "a": 0,
-            "rating": 0.70,
-            "acs": 177,
-            "acs_estimated": true,
-            "adr": 74,
-            "hs_pct": 27,
-            "fb": 1,
-            "fd": 1,
-            "fk_fd_diff": 0,
-            "fb_pct": 50,
-            "kast_pct": 50,
-            "clutches": 0,
-            "damage": 1638,
-            "max_round_dmg": 597,
-            "multi_kills": {
-              "2k": 0,
-              "3k": 0,
-              "4k": 1,
-              "5k": 0
-            },
-            "rounds_played": 22
-          }
-        ],
-        "team2": [
-          {
-            "name": "quartz",
-            "agent": "Yoru",
-            "role": "Duelist",
-            "is_igl": false,
-            "k": 20,
-            "d": 18,
-            "a": 0,
-            "rating": 0.91,
-            "acs": 254,
-            "acs_estimated": true,
-            "adr": 144,
-            "hs_pct": 55,
-            "fb": 4,
-            "fd": 6,
-            "fk_fd_diff": -2,
-            "fb_pct": 40,
-            "kast_pct": 45,
-            "clutches": 0,
-            "damage": 3157,
-            "max_round_dmg": 827,
-            "multi_kills": {
-              "2k": 1,
-              "3k": 1,
-              "4k": 1,
-              "5k": 1
-            },
-            "rounds_played": 22
-          },
-          {
-            "name": "Salt6",
-            "agent": "Chamber",
-            "role": "Sentinel",
-            "is_igl": false,
-            "k": 17,
-            "d": 17,
-            "a": 3,
-            "rating": 0.96,
-            "acs": 253,
-            "acs_estimated": true,
-            "adr": 122,
-            "hs_pct": 35,
-            "fb": 2,
-            "fd": 2,
-            "fk_fd_diff": 0,
-            "fb_pct": 50,
-            "kast_pct": 50,
-            "clutches": 0,
-            "damage": 2693,
-            "max_round_dmg": 509,
-            "multi_kills": {
-              "2k": 2,
-              "3k": 3,
-              "4k": 0,
-              "5k": 0
-            },
-            "rounds_played": 22
-          },
-          {
-            "name": "ApexWolf",
+            "name": "Rapid231",
             "agent": "Fade",
             "role": "Initiator",
             "is_igl": true,
             "k": 19,
-            "d": 18,
-            "a": 8,
-            "rating": 1.25,
-            "acs": 321,
+            "d": 16,
+            "a": 5,
+            "rating": 1.23,
+            "acs": 349,
             "acs_estimated": true,
-            "adr": 143,
+            "adr": 206,
             "hs_pct": 36,
-            "fb": 1,
-            "fd": 2,
-            "fk_fd_diff": -1,
-            "fb_pct": 33,
-            "kast_pct": 68,
+            "fb": 3,
+            "fd": 0,
+            "fk_fd_diff": 3,
+            "fb_pct": 100,
+            "kast_pct": 65,
             "clutches": 0,
-            "damage": 3143,
-            "max_round_dmg": 496,
+            "damage": 4119,
+            "max_round_dmg": 517,
+            "multi_kills": {
+              "2k": 5,
+              "3k": 1,
+              "4k": 0,
+              "5k": 0
+            },
+            "rounds_played": 20
+          },
+          {
+            "name": "Reign516",
+            "agent": "Neon",
+            "role": "Duelist",
+            "is_igl": false,
+            "k": 17,
+            "d": 15,
+            "a": 0,
+            "rating": 0.79,
+            "acs": 242,
+            "acs_estimated": true,
+            "adr": 167,
+            "hs_pct": 47,
+            "fb": 1,
+            "fd": 5,
+            "fk_fd_diff": -4,
+            "fb_pct": 16,
+            "kast_pct": 45,
+            "clutches": 0,
+            "damage": 3341,
+            "max_round_dmg": 468,
+            "multi_kills": {
+              "2k": 4,
+              "3k": 2,
+              "4k": 0,
+              "5k": 0
+            },
+            "rounds_played": 20
+          },
+          {
+            "name": "LemurSnow",
+            "agent": "Sage",
+            "role": "Sentinel",
+            "is_igl": false,
+            "k": 9,
+            "d": 17,
+            "a": 3,
+            "rating": 0.74,
+            "acs": 208,
+            "acs_estimated": true,
+            "adr": 120,
+            "hs_pct": 44,
+            "fb": 0,
+            "fd": 1,
+            "fk_fd_diff": -1,
+            "fb_pct": 0,
+            "kast_pct": 35,
+            "clutches": 0,
+            "damage": 2408,
+            "max_round_dmg": 602,
+            "multi_kills": {
+              "2k": 2,
+              "3k": 0,
+              "4k": 1,
+              "5k": 0
+            },
+            "rounds_played": 20
+          },
+          {
+            "name": "KodaEdge",
+            "agent": "Miks",
+            "role": "Controller",
+            "is_igl": false,
+            "k": 10,
+            "d": 15,
+            "a": 1,
+            "rating": 0.86,
+            "acs": 235,
+            "acs_estimated": true,
+            "adr": 125,
+            "hs_pct": 20,
+            "fb": 0,
+            "fd": 0,
+            "fk_fd_diff": 0,
+            "fb_pct": 0,
+            "kast_pct": 50,
+            "clutches": 1,
+            "damage": 2502,
+            "max_round_dmg": 471,
+            "multi_kills": {
+              "2k": 0,
+              "3k": 1,
+              "4k": 0,
+              "5k": 0
+            },
+            "rounds_played": 20
+          },
+          {
+            "name": "Arc8",
+            "agent": "Phoenix",
+            "role": "Duelist",
+            "is_igl": false,
+            "k": 17,
+            "d": 18,
+            "a": 0,
+            "rating": 1.08,
+            "acs": 307,
+            "acs_estimated": true,
+            "adr": 183,
+            "hs_pct": 23,
+            "fb": 5,
+            "fd": 5,
+            "fk_fd_diff": 0,
+            "fb_pct": 50,
+            "kast_pct": 55,
+            "clutches": 1,
+            "damage": 3655,
+            "max_round_dmg": 614,
+            "multi_kills": {
+              "2k": 1,
+              "3k": 1,
+              "4k": 1,
+              "5k": 0
+            },
+            "rounds_played": 20
+          }
+        ],
+        "team2": [
+          {
+            "name": "dicex",
+            "agent": "Fade",
+            "role": "Initiator",
+            "is_igl": true,
+            "k": 17,
+            "d": 15,
+            "a": 6,
+            "rating": 1.15,
+            "acs": 325,
+            "acs_estimated": true,
+            "adr": 190,
+            "hs_pct": 52,
+            "fb": 1,
+            "fd": 3,
+            "fk_fd_diff": -2,
+            "fb_pct": 25,
+            "kast_pct": 60,
+            "clutches": 0,
+            "damage": 3796,
+            "max_round_dmg": 516,
             "multi_kills": {
               "2k": 3,
               "3k": 2,
               "4k": 0,
               "5k": 0
             },
-            "rounds_played": 22
+            "rounds_played": 20
           },
           {
-            "name": "ion",
-            "agent": "Brimstone",
+            "name": "TerraCore",
+            "agent": "Omen",
             "role": "Controller",
             "is_igl": false,
-            "k": 22,
-            "d": 16,
-            "a": 6,
-            "rating": 1.17,
-            "acs": 314,
+            "k": 21,
+            "d": 14,
+            "a": 2,
+            "rating": 1.03,
+            "acs": 308,
             "acs_estimated": true,
-            "adr": 161,
-            "hs_pct": 27,
+            "adr": 205,
+            "hs_pct": 28,
+            "fb": 0,
+            "fd": 3,
+            "fk_fd_diff": -3,
+            "fb_pct": 0,
+            "kast_pct": 55,
+            "clutches": 1,
+            "damage": 4093,
+            "max_round_dmg": 626,
+            "multi_kills": {
+              "2k": 2,
+              "3k": 3,
+              "4k": 1,
+              "5k": 0
+            },
+            "rounds_played": 20
+          },
+          {
+            "name": "OmenSnow",
+            "agent": "Neon",
+            "role": "Duelist",
+            "is_igl": false,
+            "k": 20,
+            "d": 14,
+            "a": 2,
+            "rating": 1.36,
+            "acs": 376,
+            "acs_estimated": true,
+            "adr": 207,
+            "hs_pct": 50,
+            "fb": 9,
+            "fd": 2,
+            "fk_fd_diff": 7,
+            "fb_pct": 81,
+            "kast_pct": 80,
+            "clutches": 1,
+            "damage": 4145,
+            "max_round_dmg": 625,
+            "multi_kills": {
+              "2k": 4,
+              "3k": 0,
+              "4k": 1,
+              "5k": 0
+            },
+            "rounds_played": 20
+          },
+          {
+            "name": "phaseay",
+            "agent": "Vyse",
+            "role": "Sentinel",
+            "is_igl": false,
+            "k": 16,
+            "d": 13,
+            "a": 4,
+            "rating": 1.18,
+            "acs": 323,
+            "acs_estimated": true,
+            "adr": 175,
+            "hs_pct": 37,
             "fb": 1,
             "fd": 1,
             "fk_fd_diff": 0,
             "fb_pct": 50,
-            "kast_pct": 59,
-            "clutches": 0,
-            "damage": 3534,
-            "max_round_dmg": 748,
-            "multi_kills": {
-              "2k": 4,
-              "3k": 1,
-              "4k": 0,
-              "5k": 1
-            },
-            "rounds_played": 22
-          },
-          {
-            "name": "cy4n",
-            "agent": "Harbor",
-            "role": "Controller",
-            "is_igl": false,
-            "k": 16,
-            "d": 17,
-            "a": 0,
-            "rating": 1.01,
-            "acs": 258,
-            "acs_estimated": true,
-            "adr": 112,
-            "hs_pct": 18,
-            "fb": 2,
-            "fd": 1,
-            "fk_fd_diff": 1,
-            "fb_pct": 66,
-            "kast_pct": 50,
-            "clutches": 0,
-            "damage": 2459,
-            "max_round_dmg": 546,
+            "kast_pct": 65,
+            "clutches": 2,
+            "damage": 3497,
+            "max_round_dmg": 514,
             "multi_kills": {
               "2k": 1,
-              "3k": 1,
-              "4k": 1,
+              "3k": 2,
+              "4k": 0,
               "5k": 0
             },
-            "rounds_played": 22
+            "rounds_played": 20
+          },
+          {
+            "name": "Nomad103",
+            "agent": "Sage",
+            "role": "Sentinel",
+            "is_igl": false,
+            "k": 7,
+            "d": 16,
+            "a": 2,
+            "rating": 0.66,
+            "acs": 188,
+            "acs_estimated": true,
+            "adr": 111,
+            "hs_pct": 14,
+            "fb": 0,
+            "fd": 0,
+            "fk_fd_diff": 0,
+            "fb_pct": 0,
+            "kast_pct": 45,
+            "clutches": 0,
+            "damage": 2220,
+            "max_round_dmg": 247,
+            "multi_kills": {
+              "2k": 0,
+              "3k": 0,
+              "4k": 0,
+              "5k": 0
+            },
+            "rounds_played": 20
           }
         ]
-      }
+      },
+      "round_history": [
+        {
+          "round": 1,
+          "winner": "team1",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 0
+          },
+          "economy": {
+            "team1_invest": 4000,
+            "team2_invest": 4000
+          }
+        },
+        {
+          "round": 2,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 1,
+            "team2": 1
+          },
+          "economy": {
+            "team1_invest": 1900,
+            "team2_invest": 1000
+          }
+        },
+        {
+          "round": 3,
+          "winner": "team1",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 1
+          },
+          "economy": {
+            "team1_invest": 19500,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 4,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 2
+          },
+          "economy": {
+            "team1_invest": 15000,
+            "team2_invest": 1000
+          }
+        },
+        {
+          "round": 5,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 3
+          },
+          "economy": {
+            "team1_invest": 1000,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 6,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 4
+          },
+          "economy": {
+            "team1_invest": 19500,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 7,
+          "winner": "team2",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 5
+          },
+          "economy": {
+            "team1_invest": 18600,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 8,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 6
+          },
+          "economy": {
+            "team1_invest": 14500,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 9,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 2,
+            "team2": 7
+          },
+          "economy": {
+            "team1_invest": 14500,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 10,
+          "winner": "team1",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 3,
+            "team2": 7
+          },
+          "economy": {
+            "team1_invest": 14500,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 11,
+          "winner": "team2",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 3,
+            "team2": 8
+          },
+          "economy": {
+            "team1_invest": 1900,
+            "team2_invest": 1000
+          }
+        },
+        {
+          "round": 12,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team1",
+          "score": {
+            "team1": 3,
+            "team2": 9
+          },
+          "economy": {
+            "team1_invest": 22600,
+            "team2_invest": 27000
+          }
+        },
+        {
+          "round": 13,
+          "winner": "team2",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 3,
+            "team2": 10
+          },
+          "economy": {
+            "team1_invest": 4000,
+            "team2_invest": 4000
+          }
+        },
+        {
+          "round": 14,
+          "winner": "team2",
+          "end_kind": "spike_detonation",
+          "spike_planted": true,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 3,
+            "team2": 11
+          },
+          "economy": {
+            "team1_invest": 1000,
+            "team2_invest": 1900
+          }
+        },
+        {
+          "round": 15,
+          "winner": "team1",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 4,
+            "team2": 11
+          },
+          "economy": {
+            "team1_invest": 20500,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 16,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 4,
+            "team2": 12
+          },
+          "economy": {
+            "team1_invest": 15000,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 17,
+          "winner": "team1",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 5,
+            "team2": 12
+          },
+          "economy": {
+            "team1_invest": 9500,
+            "team2_invest": 15000
+          }
+        },
+        {
+          "round": 18,
+          "winner": "team1",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 6,
+            "team2": 12
+          },
+          "economy": {
+            "team1_invest": 15000,
+            "team2_invest": 1000
+          }
+        },
+        {
+          "round": 19,
+          "winner": "team1",
+          "end_kind": "defuse",
+          "spike_planted": true,
+          "was_retake": true,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 7,
+            "team2": 12
+          },
+          "economy": {
+            "team1_invest": 15000,
+            "team2_invest": 19500
+          }
+        },
+        {
+          "round": 20,
+          "winner": "team2",
+          "end_kind": "elimination",
+          "spike_planted": false,
+          "was_retake": false,
+          "attacking_side": "team2",
+          "score": {
+            "team1": 7,
+            "team2": 13
+          },
+          "economy": {
+            "team1_invest": 15000,
+            "team2_invest": 18600
+          }
+        }
+      ]
     }
   ],
   "series_totals": {
     "team1": {
-      "k": 127,
-      "d": 170,
-      "a": 10,
-      "fb": 22,
-      "fd": 16,
-      "damage": 19899,
+      "k": 128,
+      "d": 162,
+      "a": 11,
+      "fb": 15,
+      "fd": 23,
+      "damage": 29855,
       "rounds": 190
     },
     "team2": {
-      "k": 170,
-      "d": 127,
-      "a": 32,
-      "fb": 16,
-      "fd": 22,
-      "damage": 27345,
+      "k": 162,
+      "d": 128,
+      "a": 23,
+      "fb": 23,
+      "fd": 15,
+      "damage": 34288,
       "rounds": 190
     },
     "mvp": {
-      "name": "ApexWolf",
+      "name": "OmenSnow",
       "team": "team2",
-      "k": 41,
-      "d": 23,
-      "a": 13,
-      "rating": 1.58,
+      "k": 46,
+      "d": 22,
+      "a": 3,
+      "rating": 1.54,
       "maps_played": 2
     }
   }

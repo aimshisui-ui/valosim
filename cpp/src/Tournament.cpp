@@ -191,6 +191,13 @@ void Tournament::absorb_series_participants(const Series& s) {
                 if (!p) continue;
                 TournamentPlayerStat& acc = player_stat_accum_[p];
                 acc.player    = p;
+                // Snapshot display fields so the UI never derefs a possibly
+                // dangling Player* later. Fixed once per player, then frozen.
+                if (acc.display_name.empty()) {
+                    acc.display_name = p->name;
+                    acc.is_igl = p->is_igl;
+                    acc.signature_agent = p->signature_agent();
+                }
                 // Latest team the player suited up for in this event.
                 if (!side_team.empty()) acc.team_name = side_team;
                 acc.maps   += 1;
@@ -330,6 +337,13 @@ void Tournament::award_event_titles(int current_year) {
         }
     }
 
+    // Non-title playoff (2nd/3rd regional split of the year): the bracket still
+    // crowns a champion for seeding + UI, but mints NO "Regional Champ" award.
+    // Only the FIRST regional of the year is a true "Regional Champs". The
+    // GameManager-side record_trophy call is gated on awards_title() too, so no
+    // team trophy is recorded either. Snapshot is already populated above for UI.
+    if (!awards_title_) { pinned_titles_already_ = true; return; }
+
     // === Pin to player.awards ==============================================
     // Award string format MUST match the historical pattern — GOAT scoring
     // and HoF criteria substring-match on these exact tokens:
@@ -367,14 +381,18 @@ void Tournament::setup_groups() {
         start_bracket(teams_);
         return;
     }
-    int group_count = (total >= 16) ? 4 : 2;
-    int per_group = total / group_count;
+    // 4 groups once the field is >=12 (Champions 12 -> 4x3, a 16-field -> 4x4),
+    // else 2 groups (Masters 9 -> 5+4, smaller fields -> even-ish halves). Snake
+    // distribution places EVERY team — no remainder is dropped (the old `>= 16`
+    // + per_group cap silently dropped the 9th team of a 9-team Masters, losing a
+    // qualifier). Top-2 per group then feeds the playoff: 2 groups -> 4-team
+    // bracket, 4 groups -> 8-team bracket (both handled in resolve_groups...).
+    int group_count = (total >= 12) ? 4 : 2;
     groups_.resize(static_cast<std::size_t>(group_count));
     for (int i = 0; i < total; ++i) {
         int round_idx = i / group_count;
         int g = (round_idx % 2 == 0) ? (i % group_count)
                                      : (group_count - 1 - (i % group_count));
-        if ((int)groups_[g].size() >= per_group) continue;
         GroupStanding gs; gs.team = teams_[i];
         groups_[g].push_back(gs);
     }
@@ -384,8 +402,11 @@ void Tournament::setup_groups() {
         for (std::size_t i = 0; i < g.size(); ++i) {
             for (std::size_t j = i + 1; j < g.size(); ++j) {
                 current_matchups_.emplace_back(g[i].team, g[j].team);
+                // Group-stage series are BO3 (was BO2, which could end 1-1 — a
+                // draw that never happens in VCT). Every series is BO3 except
+                // the Lower Grand Final + Grand Final (BO5).
                 active_series_.push_back(std::make_shared<Series>(
-                    g[i].team, g[j].team, 2, name_ + " - Group Stage"));
+                    g[i].team, g[j].team, 3, name_ + " - Group Stage"));
             }
         }
     }

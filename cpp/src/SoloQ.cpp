@@ -184,7 +184,9 @@ void balance_lobby(std::vector<PlayerPtr>& lobby,
 }  // namespace
 
 RecordedMatchPtr SoloQEngine::force_solo_match(PlayerPtr host) {
-    if (!host) return nullptr;
+    // Retired players have left competition entirely — they no longer queue
+    // ranked (simulate_ranked_day skips them) and cannot be force-queued either.
+    if (!host || host->is_retired) return nullptr;
     // Take the 9 nearest-MMR players regardless of region so the user can
     // spectate any specific person without long matchmaking waits.
     std::vector<PlayerPtr> pool;
@@ -212,7 +214,7 @@ RecordedMatchPtr SoloQEngine::force_solo_match(PlayerPtr host) {
     blue->target_comp = random_comp();
     red->target_comp  = random_comp();
 
-    Match match(blue, red, M, /*is_solo_q=*/true, "Forced Ranked Match");
+    Match match(blue, red, M, /*is_solo_q=*/true, "Ranked Match");
     match.play();
 
     // Apply MMR + W/L exactly like a normal solo Q match would.
@@ -268,7 +270,16 @@ PlayerPtr SoloQEngine::generate_rookie() {
 }
 
 std::vector<PlayerPtr> SoloQEngine::get_leaderboard() const {
-    std::vector<PlayerPtr> v = ladder_;
+    // The ranked leaderboard reflects the LIVE ranked scene. Retired players are
+    // never erased from ladder_ (never-free invariant) and — since they no longer
+    // queue — their solo_mmr is frozen at its pre-retirement peak, while active
+    // players reset to 1100 each new season. Including them would let retired
+    // "ghosts" permanently occupy the top of the board and displace live climbers
+    // from the HoF top-20 criterion (the other caller). Exclude them here so both
+    // the GUI board and the top-20 tracking see only active players.
+    std::vector<PlayerPtr> v;
+    v.reserve(ladder_.size());
+    for (auto& p : ladder_) if (p && !p->is_retired) v.push_back(p);
     std::sort(v.begin(), v.end(),
               [](const PlayerPtr& a, const PlayerPtr& b) { return a->solo_mmr > b->solo_mmr; });
     return v;
@@ -289,6 +300,11 @@ void SoloQEngine::simulate_ranked_day(int loops) {
         std::vector<PlayerPtr> active;
         active.reserve(ladder_.size());
         for (auto& p : ladder_) {
+            // Retired players are never erased from the ladder (the never-free
+            // invariant keeps their shared_ptr alive for match-history refs),
+            // but they must NOT keep queueing ranked — skip them. This also
+            // keeps per-day scheduling cost O(active), not O(total ladder).
+            if (!p || p->is_retired) continue;
             // Skip players who've already hit their daily cap.
             auto& count = matches_this_day[p.get()];
             if (count >= kPerPlayerDailyCap) continue;

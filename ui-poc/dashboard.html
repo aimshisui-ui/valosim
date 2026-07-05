@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Valosim — Dashboard (Web POC)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* surfaces — page → forward */
+  --bg-0:#0B0D12; --bg-1:#171A24; --bg-2:#1C202C; --bg-3:#242938;
+  --hairline:#2A2F3D; --border-strong:#3A4152;
+  --hi-inset:inset 0 1px 0 rgba(233,236,241,.05);
+  /* text */
+  --fg:#E9ECF1; --fg-muted:#8B93A3; --fg-ghost:#7C8499;
+  /* brand + semantics */
+  --red:#FF4655; --red-tint:rgba(255,70,85,.10); --red-glow:0 0 16px rgba(255,70,85,.35);
+  --green:#3FD17A; --amber:#D4A14C; --blue:#00D4FF; --purple:#7B5EFF; --gold:#FFD700;
+  /* role colors */
+  --r-duelist:#FF4655; --r-initiator:#00D4FF; --r-controller:#7B5EFF; --r-sentinel:#3FD17A;
+  /* club color (per-org) */
+  --club:#FF4655;
+  /* spacing 8pt */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:32px;
+  /* radius */
+  --r-card:10px; --r-tile:8px; --r-pill:999px; --bevel:12px;
+  /* type */
+  --font-display:"Space Grotesk",system-ui,sans-serif;
+  --font-ui:"Inter",system-ui,sans-serif;
+  --font-num:"IBM Plex Mono",ui-monospace,monospace;
+  /* motion */
+  --ease:cubic-bezier(.2,.8,.2,1); --t-fast:140ms; --t-mid:220ms; --t-slow:300ms;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+html{overflow-x:auto;overflow-y:hidden}
+body{
+  width:100vw; min-width:1200px; height:100vh; overflow:hidden;
+  background:
+    radial-gradient(1200px 600px at 60% -10%, rgba(255,70,85,.05), transparent 60%),
+    radial-gradient(900px 500px at 100% 110%, rgba(123,94,255,.04), transparent 60%),
+    var(--bg-0);
+  color:var(--fg); font-family:var(--font-ui);
+  display:grid; grid-template-columns:72px 1fr;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.bevel{clip-path:polygon(var(--bevel) 0,100% 0,100% 100%,0 100%,0 var(--bevel))}
+.bevel-tr{clip-path:polygon(0 0,calc(100% - var(--bevel)) 0,100% var(--bevel),100% 100%,0 100%)}
+
+/* ===================== NAV RAIL ===================== */
+.nav{
+  background:var(--bg-0); border-right:1px solid var(--hairline);
+  display:flex; flex-direction:column; align-items:center; padding:18px 0; gap:6px;
+}
+.nav .crest{
+  width:40px;height:40px;border-radius:11px;background:var(--bg-3);
+  border:1px solid var(--border-strong); display:grid;place-items:center;
+  font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--fg);
+  position:relative; margin-bottom:14px;
+}
+.nav .crest::after{content:"";position:absolute;bottom:-7px;left:8px;right:8px;height:2px;background:var(--club);border-radius:2px}
+.nav button{
+  width:44px;height:44px;border:0;background:transparent;border-radius:10px;
+  color:var(--fg-muted);display:grid;place-items:center;cursor:pointer;position:relative;
+  transition:color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.nav button:hover{color:var(--fg);background:var(--bg-1)}
+.nav button.active{color:var(--fg)}
+.nav button.active::before{content:"";position:absolute;left:-14px;top:11px;bottom:11px;width:3px;border-radius:0 3px 3px 0;background:var(--red);box-shadow:0 0 10px rgba(255,70,85,.5)}
+.nav .spacer{flex:1}
+.nav svg{width:22px;height:22px;stroke:currentColor;stroke-width:1.75;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* ===================== CONTENT ===================== */
+.content{padding:18px 32px 22px;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* header */
+.header{
+  position:relative;height:76px;background:var(--bg-1);border:1px solid var(--hairline);
+  box-shadow:var(--hi-inset);border-radius:var(--r-card);padding:0 22px;
+  display:flex;align-items:center;gap:18px;overflow:hidden;
+}
+.header::before{content:"";position:absolute;top:0;left:0;height:2px;width:30%;
+  background:linear-gradient(90deg,transparent,var(--red),transparent);
+  animation:sweep 6s linear infinite}
+.header .wash{position:absolute;top:0;left:0;width:200px;height:100%;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--club) 14%,transparent),transparent);pointer-events:none}
+.header .hcrest{width:52px;height:52px;border-radius:13px;background:var(--bg-3);
+  border:1px solid var(--border-strong);display:grid;place-items:center;
+  font-family:var(--font-display);font-weight:700;font-size:24px;color:var(--fg);z-index:1;flex:none}
+.header .htitle{z-index:1}
+.header .hname{font-family:var(--font-display);font-weight:700;font-size:28px;letter-spacing:-.02em;line-height:1.05}
+.header .hmeta{display:flex;gap:7px;margin-top:7px}
+.plate{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--fg-muted);background:var(--bg-2);border:1px solid var(--hairline);
+  padding:4px 9px;clip-path:polygon(6px 0,100% 0,100% 100%,0 100%,0 6px)}
+.plate.div{color:#ffb3ba;background:rgba(255,70,85,.10);border-color:rgba(255,70,85,.30)}
+.header .hclock{margin-left:auto;text-align:right;z-index:1}
+.header .hclock .lab{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--fg-ghost);text-transform:uppercase}
+.header .hclock .val{font-family:var(--font-num);font-size:15px;color:var(--fg);margin-top:3px}
+
+/* day-rail */
+.dayrail{position:relative;height:34px;margin:10px 4px 0;display:flex;align-items:center}
+.dayrail .track{position:absolute;left:0;right:0;height:2px;background:var(--bg-2);border-radius:2px}
+.dayrail .fill{position:absolute;left:0;height:2px;border-radius:2px;width:0;
+  background:linear-gradient(90deg,var(--amber),var(--gold));box-shadow:0 0 6px rgba(212,161,76,.28);
+  transition:width 900ms var(--ease)}
+.dayrail .tick{position:absolute;top:50%;transform:translate(-50%,-50%) rotate(45deg);
+  width:9px;height:9px;background:var(--bg-0);border:1.5px solid var(--fg-ghost);border-radius:2px;z-index:1}
+.dayrail .tick.lit{background:var(--amber);border-color:var(--amber);box-shadow:0 0 10px rgba(212,161,76,.55)}
+.dayrail .tlab{position:absolute;top:-15px;transform:translateX(-50%);font-size:9.5px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--fg-ghost);white-space:nowrap}
+.dayrail .tlab.lit{color:var(--amber)}
+.dayrail .today{position:absolute;top:50%;transform:translate(-50%,-50%);width:11px;height:11px;border-radius:50%;
+  background:var(--red);border:2px solid var(--bg-0);box-shadow:var(--red-glow);z-index:2;opacity:0;transition:opacity 400ms 900ms}
+
+/* KPI strip */
+.kpis{display:flex;gap:12px;margin-top:14px}
+.kpi{flex:1;background:var(--bg-1);border:1px solid var(--hairline);box-shadow:var(--hi-inset);
+  border-radius:var(--r-tile);padding:13px 15px 0;height:96px;position:relative;overflow:hidden}
+.kpi .klab{font-size:10px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--fg-muted)}
+.kpi .kval{font-family:var(--font-num);font-weight:600;font-size:30px;line-height:1;margin-top:12px;color:var(--fg)}
+.kpi .ksub{font-size:10.5px;color:var(--fg-muted);margin-top:6px}
+.kpi .kbar{position:absolute;left:0;bottom:0;height:4px;width:35%;border-radius:0 2px 0 0;background:var(--accent,var(--amber));
+  transition:width 200ms var(--ease)}
+.kpi:hover .kbar{width:100%}
+.kpi.today{border-color:var(--red);animation:pulse 1.7s ease-in-out infinite}
+.kpi.today .kval{color:var(--red)}
+
+/* cockpit grid */
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin-top:16px;flex:1;min-height:0}
+.colA{grid-column:span 4;display:flex;flex-direction:column;gap:16px;min-height:0}
+.colB{grid-column:span 4;min-height:0}
+.colC{grid-column:span 4;display:flex;flex-direction:column;gap:16px;min-height:0}
+.card{background:var(--bg-1);border:1px solid var(--hairline);box-shadow:var(--hi-inset);
+  border-radius:var(--r-card);padding:16px 18px;display:flex;flex-direction:column;min-height:0;
+  clip-path:polygon(var(--bevel) 0,100% 0,100% 100%,0 100%,0 var(--bevel))}
+.chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.chead .t{font-family:var(--font-display);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted)}
+.chead .s{font-family:var(--font-num);font-size:11.5px;color:var(--fg-muted)}
+.cbody{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+.cbody::-webkit-scrollbar{width:6px}.cbody::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:3px}
+.cbody.nocap{overflow:visible;flex:none}
+.cbody.fademask{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 22px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 22px),transparent)}
+
+/* objectives */
+.obj{display:flex;flex-direction:column;gap:5px;padding:9px 0;border-bottom:1px solid var(--hairline)}
+.obj:last-child{border-bottom:0}
+.obj .top{display:flex;align-items:center;gap:8px}
+.chip{width:17px;height:17px;border-radius:5px;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
+.chip.met{background:rgba(63,209,122,.16);color:var(--green);border:1px solid rgba(63,209,122,.4)}
+.chip.unmet{background:transparent;color:var(--amber);border:1px solid rgba(212,161,76,.5)}
+.pill{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:2px 7px;border-radius:var(--r-pill);flex:none}
+.pill.primary{background:rgba(255,70,85,.14);color:#ff8a94;border:1px solid rgba(255,70,85,.45)}
+.obj .txt{font-size:13px;font-weight:500;color:var(--fg);line-height:1.3}
+.obj .frac{margin-left:auto;font-family:var(--font-num);font-size:12px;color:var(--fg-muted);flex:none}
+.track{height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-top:3px}
+.track .tf{height:100%;width:0;border-radius:3px;transition:width 600ms var(--ease)}
+.obj .prog{font-size:10.5px;color:var(--fg-muted)}
+
+/* standings */
+.stbl{width:100%;font-size:13.5px}
+.stbl .sh{display:grid;grid-template-columns:34px 1fr 56px 48px;gap:6px;padding:0 6px 8px;
+  font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted);
+  position:sticky;top:0;background:var(--bg-1);z-index:1}
+.srow{display:grid;grid-template-columns:34px 1fr 56px 48px;gap:6px;align-items:center;height:36px;padding:0 6px;
+  border-top:1px solid var(--hairline);position:relative;transition:background var(--t-fast) var(--ease)}
+.srow:hover{background:var(--bg-2)}
+.srow .rk{font-family:var(--font-num);color:var(--fg-muted);position:relative;padding-left:7px}
+.srow.user{background:var(--red-tint)}
+.srow.user::before{content:"";position:absolute;left:-18px;top:0;bottom:0;width:3px;background:var(--red)}
+.srow.user .nm{color:var(--club);font-weight:600}
+.srow .tick4::after{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--green)}
+.srow .tick1::after{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--gold)}
+.srow .team{display:flex;align-items:center;gap:9px;min-width:0}
+.mono-chip{width:20px;height:20px;border-radius:5px;background:var(--bg-3);border:1px solid var(--border-strong);
+  display:grid;place-items:center;font-family:var(--font-display);font-size:11px;font-weight:600;color:var(--fg-muted);flex:none}
+.srow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .wl{font-family:var(--font-num);text-align:right;color:var(--fg)}
+.srow .ov{font-family:var(--font-num);font-weight:600;text-align:right}
+.stfoot{display:flex;align-items:center;gap:18px;padding-top:11px;margin-top:8px;border-top:1px solid var(--hairline);font-size:10.5px;color:var(--fg-muted)}
+.stfoot .lg{display:flex;align-items:center;gap:6px}
+.stfoot .lg i{width:8px;height:3px;border-radius:2px;display:inline-block}
+
+/* next match hero */
+.hero{background:var(--bg-3);border:1px solid var(--border-strong);box-shadow:0 8px 24px rgba(0,0,0,.45);
+  border-radius:var(--r-card);padding:14px 16px;clip-path:polygon(var(--bevel) 0,100% 0,100% 100%,0 100%,0 var(--bevel))}
+.hero .hh{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px}
+.hero .hh .t{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted)}
+.hero .vs{display:flex;align-items:center;justify-content:center;gap:16px}
+.hero .side{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:0}
+.hero .big-chip{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;font-family:var(--font-display);font-weight:700;font-size:17px}
+.hero .side .sn{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.hero .side .so{font-family:var(--font-num);font-size:11px;color:var(--fg-muted)}
+.hero .mid{font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--fg-ghost)}
+.hero .tape{display:flex;height:5px;border-radius:3px;overflow:hidden;margin:11px 0 10px;background:var(--bg-2)}
+.hero .cta{display:block;width:100%;text-align:center;padding:9px;border-radius:8px;border:0;cursor:pointer;
+  font-family:var(--font-display);font-weight:600;font-size:12.5px;letter-spacing:.04em}
+.hero .cta.live{background:var(--red);color:#fff;box-shadow:var(--red-glow)}
+.hero .cta.soon{background:var(--bg-2);color:var(--fg-muted);border:1px solid var(--hairline)}
+
+/* form & finance */
+.ff{display:flex;flex-direction:column;gap:14px}
+.ff .lab{font-size:10px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--fg-muted);margin-bottom:7px}
+.form5{display:flex;gap:6px}
+.seg{flex:1;height:26px;border-radius:4px;display:grid;place-items:center;font-family:var(--font-num);font-size:10px;font-weight:600;
+  clip-path:polygon(4px 0,100% 0,100% 100%,0 100%,0 4px)}
+.seg.w{background:rgba(63,209,122,.16);color:var(--green);border:1px solid rgba(63,209,122,.35)}
+.seg.l{background:rgba(255,70,85,.14);color:#ff8a94;border:1px solid rgba(255,70,85,.35)}
+.ff .now{font-family:var(--font-num);font-size:13px;color:var(--fg);float:right;margin-top:-2px}
+
+/* squad */
+.pl{display:flex;align-items:center;gap:11px;height:38px;padding:0 4px;border-top:1px solid var(--hairline);position:relative}
+.pl:first-child{border-top:0}
+.pl .role{font-family:var(--font-num);font-size:9.5px;font-weight:600;letter-spacing:.06em;padding:3px 6px;
+  clip-path:polygon(3px 0,100% 0,100% 100%,0 100%,0 3px);flex:none}
+.pl .ph{font-size:13.5px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl .tag{font-size:8.5px;font-weight:700;letter-spacing:.06em;color:var(--amber);border:1px solid rgba(212,161,76,.4);border-radius:4px;padding:1px 4px}
+.pl .stat{display:flex;flex-direction:column;align-items:flex-end;width:42px;flex:none}
+.pl .stat .sv{font-family:var(--font-num);font-size:13px;font-weight:600;line-height:1.1}
+.pl .stat .sl{font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-ghost)}
+.pl.top .ph::after{content:"★";color:var(--gold);margin-left:6px;font-size:11px}
+.pl.top{box-shadow:inset 0 0 0 1px rgba(255,215,0,.12)}
+
+/* news */
+.nw{display:flex;align-items:center;gap:10px;padding:8px 4px;border-top:1px solid var(--hairline)}
+.nw:first-child{border-top:0}
+.npill{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:5px;flex:none;white-space:nowrap;max-width:128px;overflow:hidden;text-overflow:ellipsis}
+.nw .nh{font-size:13px;font-weight:600;color:var(--fg);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nw .nd{font-family:var(--font-num);font-size:10px;color:var(--fg-ghost);flex:none}
+
+/* sparkline */
+.spark{width:100%;height:54px;display:block}
+.sparkwrap{position:relative;width:100%;height:54px}
+.sparkdot{position:absolute;width:7px;height:7px;border-radius:50%;transform:translate(-50%,-50%)}
+.spark-empty{height:54px;display:flex;align-items:center;color:var(--fg-muted);font-size:12px}
+.ff .empty,.empty{color:var(--fg-muted);font-size:12px;padding:10px 2px}
+.preempty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--fg-muted);font-size:15px;letter-spacing:.01em;text-align:center;padding:40px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* entrance */
+.enter{opacity:0;transform:translateY(8px)}
+.enter.in{opacity:1;transform:none;transition:opacity var(--t-mid) var(--ease),transform var(--t-mid) var(--ease)}
+
+@keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 rgba(255,70,85,0)}50%{box-shadow:0 0 16px rgba(255,70,85,.45)}}
+
+*:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:4px}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .enter{opacity:1;transform:none}
+  .dayrail .today{opacity:1}
+}
+</style>
+</head>
+<body>
+  <!-- NAV RAIL -->
+  <nav class="nav" aria-label="Primary">
+    <div class="crest" id="navCrest">O</div>
+    <button class="active" title="Home" aria-label="Home" aria-current="page"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg></button>
+    <button title="Squad" aria-label="Squad"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 6.2a3 3 0 0 1 0 5.6"/><path d="M18 14.5a5 5 0 0 1 2.5 5.5"/></svg></button>
+    <button title="Competition" aria-label="Competition"><svg viewBox="0 0 24 24"><path d="M7 4h10v4a5 5 0 0 1-10 0Z"/><path d="M7 6H4v1a3 3 0 0 0 3 3"/><path d="M17 6h3v1a3 3 0 0 1-3 3"/><path d="M10 14h4l1 6H9Z"/></svg></button>
+    <button title="Awards" aria-label="Awards"><svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="5"/><path d="m9 13-2 8 5-3 5 3-2-8"/></svg></button>
+    <button title="Finance" aria-label="Finance"><svg viewBox="0 0 24 24"><path d="M12 2v20"/><path d="M17 6.5C17 4.6 14.8 3.5 12 3.5S7 4.6 7 6.5s2 2.8 5 3.5 5 1.6 5 3.5-2.2 3-5 3-5-1.1-5-3"/></svg></button>
+    <button title="Mail" aria-label="Mail"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6 8.5-6"/></svg></button>
+    <div class="spacer"></div>
+    <button title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></button>
+  </nav>
+
+  <!-- CONTENT -->
+  <main class="content">
+    <header class="header enter" id="header">
+      <div class="wash"></div>
+      <div class="hcrest" id="hcrest">O</div>
+      <div class="htitle">
+        <div class="hname" id="clubName">Omega Esports</div>
+        <div class="hmeta" id="hmeta"></div>
+      </div>
+      <div class="hclock">
+        <div class="lab">Season Day</div>
+        <div class="val" id="dayVal">95 / 200</div>
+      </div>
+    </header>
+
+    <div class="dayrail enter" id="dayrail">
+      <div class="track"></div>
+      <div class="fill" id="dayFill"></div>
+      <div class="today" id="todayDot"></div>
+    </div>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="grid">
+      <div class="colA">
+        <div class="card enter" id="cObjectives" style="flex:none">
+          <div class="chead"><span class="t">Board Objectives</span><span class="s" id="objStat"></span></div>
+          <div class="cbody nocap" id="objBody"></div>
+        </div>
+        <div class="card enter" id="cSquad" style="flex:1">
+          <div class="chead"><span class="t">Squad</span><span class="s" id="sqStat"></span></div>
+          <div class="cbody fademask" id="squadBody"></div>
+        </div>
+      </div>
+
+      <div class="colB">
+        <div class="card enter" id="cStandings" style="flex:none">
+          <div class="chead"><span class="t">Americas League</span><span class="s" id="stStat"></span></div>
+          <div class="cbody nocap" id="stBody">
+            <div class="stbl">
+              <div class="sh"><span>RK</span><span>TEAM</span><span style="text-align:right">W-L</span><span style="text-align:right">OVR</span></div>
+              <div id="stRows"></div>
+            </div>
+          </div>
+          <div class="stfoot">
+            <span class="lg"><i style="background:var(--gold)"></i>League leader</span>
+            <span class="lg"><i style="background:var(--green)"></i>Playoff line · top 4</span>
+            <span class="lg num" style="margin-left:auto;color:var(--fg-ghost)">Stage 1 · Rd 9/12</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="colC">
+        <div class="hero enter" id="cHero" style="flex:none"></div>
+        <div class="card enter" id="cForm" style="flex:none">
+          <div class="chead"><span class="t">Form &amp; Finance</span></div>
+          <div class="ff" id="ffBody"></div>
+        </div>
+        <div class="card enter" id="cNews" style="flex:1">
+          <div class="chead"><span class="t">News Feed</span><span class="s">Latest</span></div>
+          <div class="cbody fademask" id="newsBody"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+/* ===== ENGINE-ACCURATE DATA (would arrive from GameManager over the Tauri/webview bridge) ===== */
+// Real engine data, when present, is injected as `window.DASHBOARD_DATA`
+// (a <script> tag emitted by the C++ DashboardExport, exactly as a Tauri shell
+// would inject it). Absent that, the bundled SAMPLE_DATA below renders so the
+// file still works standalone.
+const DATA = window.DASHBOARD_DATA || {
+  "club_color":"#FF4655",
+  "dashboard":{
+    "header":{"club_name":"Omega Esports","division":"VCT","region":"Americas","year":2026,"day_in_year":95,"current_phase":"Stage 1"},
+    "objectives":{"total":4,"met":2,"goals":[
+      {"text":"Finish in the top 4 of the Americas league","mandatory":true,"met":true,"progress":"currently 3rd","pct":0.75},
+      {"text":"Sign a star-caliber duelist (OVR ≥ 82)","mandatory":false,"met":true,"progress":"roster carries Rival (OVR 83)","pct":1.0},
+      {"text":"Develop a young controller to OVR ≥ 78","mandatory":false,"met":false,"progress":"best youth OVR 72 / 78","pct":0.62},
+      {"text":"End the season with budget ≥ $850K","mandatory":false,"met":false,"progress":"current budget $620K / $850K","pct":0.41}
+    ]},
+    "kpis":[
+      {"label":"BUDGET","value":"$620K","tone":"pos"},
+      {"label":"PHASE RECORD","value":"9-3","tone":"info"},
+      {"label":"REGIONAL RANK","value":"#3","tone":"warn"},
+      {"label":"ROSTER OVR","value":"76","tone":"warn"},
+      {"label":"NEXT MATCH","value":"2d","tone":"neutral","today":false,"subline":"vs Cobalt Reign"},
+      {"label":"STAR DEPENDENCY","value":"+18","tone":"pos"},
+      {"label":"WINDOW","value":"OPEN","tone":"info","subline":"Contending"}
+    ],
+    "standings":[
+      {"rank":1,"team_name":"Cobalt Reign","wins":11,"losses":1,"ovr":79.2,"is_user":false},
+      {"rank":2,"team_name":"Sable Squad","wins":10,"losses":2,"ovr":77.8,"is_user":false},
+      {"rank":3,"team_name":"Omega Esports","wins":9,"losses":3,"ovr":76.0,"is_user":true},
+      {"rank":4,"team_name":"Iron Vultures","wins":8,"losses":4,"ovr":75.1,"is_user":false},
+      {"rank":5,"team_name":"Phoenix Ascend","wins":7,"losses":5,"ovr":73.9,"is_user":false},
+      {"rank":6,"team_name":"Atlantic Storm","wins":6,"losses":6,"ovr":72.4,"is_user":false},
+      {"rank":7,"team_name":"Glyph Gaming","wins":5,"losses":7,"ovr":71.2,"is_user":false},
+      {"rank":8,"team_name":"Erebus","wins":4,"losses":8,"ovr":69.8,"is_user":false},
+      {"rank":9,"team_name":"Last Light","wins":3,"losses":9,"ovr":68.6,"is_user":false},
+      {"rank":10,"team_name":"Kairos","wins":2,"losses":10,"ovr":67.3,"is_user":false},
+      {"rank":11,"team_name":"Sterling Wolves","wins":1,"losses":11,"ovr":65.9,"is_user":false},
+      {"rank":12,"team_name":"Onyx Pride","wins":0,"losses":12,"ovr":64.1,"is_user":false}
+    ],
+    "news":[
+      {"year":2026,"day":93,"category":"Result","headline":"Omega edge Cobalt Reign in a Stage 1 thriller, 13-11"},
+      {"year":2026,"day":90,"category":"MVP Race","headline":"Rival climbs into the top 3 of the MVP race"},
+      {"year":2026,"day":87,"category":"Breakout","headline":"Youngster zest0 showing elite fundamentals"},
+      {"year":2026,"day":84,"category":"Roster Move","headline":"Omega acquire Rival from Iron Vultures for $480K"},
+      {"year":2026,"day":80,"category":"Upset","headline":"Sterling Wolves stun table-topping Cobalt Reign 13-10"},
+      {"year":2026,"day":76,"category":"Awards","headline":"Cobalt Reign's IGL takes Player of the Week"}
+    ],
+    "star_players":[
+      {"name":"Rival","primary_role":"Duelist","ovr":83,"avg_rating":1.22,"kd_ratio":1.34,"igl":false},
+      {"name":"vortex7","primary_role":"Initiator","ovr":78,"avg_rating":1.11,"kd_ratio":1.05,"igl":true},
+      {"name":"Polar82","primary_role":"Sentinel","ovr":77,"avg_rating":1.09,"kd_ratio":1.02,"igl":false},
+      {"name":"Reverb","primary_role":"Controller","ovr":75,"avg_rating":1.04,"kd_ratio":0.97,"igl":false},
+      {"name":"zest0","primary_role":"Controller","ovr":72,"avg_rating":1.08,"kd_ratio":0.89,"igl":false},
+      {"name":"Frost9","primary_role":"Sentinel","ovr":71,"avg_rating":1.01,"kd_ratio":0.95,"igl":false},
+      {"name":"Halo","primary_role":"Initiator","ovr":69,"avg_rating":0.97,"kd_ratio":0.92,"igl":false},
+      {"name":"nyx","primary_role":"Duelist","ovr":67,"avg_rating":0.94,"kd_ratio":1.03,"igl":false}
+    ],
+    "next_match":{"opponent":"Cobalt Reign","opp_ovr":79.2,"opp_rank":1,"days_until":2},
+    "last_5_form":[
+      {"opponent":"LOUD","result":"W","score":"13-7"},
+      {"opponent":"Knights","result":"W","score":"13-9"},
+      {"opponent":"G2 Esports","result":"L","score":"10-13"},
+      {"opponent":"Disguised","result":"W","score":"13-8"},
+      {"opponent":"FaZe Clan","result":"W","score":"13-11"}
+    ],
+    "budget_trend":[1500,1380,1210,980,750,620]
+  }
+};
+
+/* ===== helpers ===== */
+const D = DATA.dashboard;
+const CLUB = DATA.club_color || "#FF4655";
+const reduced = matchMedia("(prefers-reduced-motion:reduce)").matches;
+const $ = (s,r=document)=>r.querySelector(s);
+const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const TONE={pos:"--green",info:"--blue",warn:"--amber",crit:"--red",neutral:"--fg-muted"};
+const cssvar=v=>v.startsWith("--")?getComputedStyle(document.documentElement).getPropertyValue(v).trim():v;
+const ROLE={Duelist:["DUE","--r-duelist"],Initiator:["INI","--r-initiator"],Controller:["CON","--r-controller"],Sentinel:["SEN","--r-sentinel"]};
+// Covers every category the engine pushes to the news feed (GameManager
+// push_news sites). Anything unmapped still falls back to --fg-muted gray.
+const NEWS_COLOR={Result:"--blue","Roster Move":"--purple",Awards:"--amber","MVP Race":"--purple",
+  Upset:"--red",Dynasty:"--gold",Retirement:"--fg-muted","Retirement Watch":"--fg-muted",
+  Breakout:"--green",Prospect:"--green","Hot Streak":"--green",Slump:"--amber",
+  Milestone:"--gold",Historic:"--gold",Rumor:"--purple",Rivalry:"--red",
+  Coaching:"--amber",Tournament:"--blue"};
+const lerpColor=(a,b,t)=>{const pa=parseInt(a.slice(1),16),pb=parseInt(b.slice(1),16);
+  const ra=pa>>16,ga=pa>>8&255,ba=pa&255,rb=pb>>16,gb=pb>>8&255,bb=pb&255;
+  const r=Math.round(ra+(rb-ra)*t),g=Math.round(ga+(gb-ga)*t),bl=Math.round(ba+(bb-ba)*t);
+  return`rgb(${r},${g},${bl})`;};
+const ovrColor=o=>{const t=Math.max(0,Math.min(1,(o-64)/20));
+  return t<0.5 ? lerpColor("#8B93A3","#D4A14C",t/0.5) : lerpColor("#D4A14C","#3FD17A",(t-0.5)/0.5);};
+
+document.documentElement.style.setProperty("--club",CLUB);
+
+/* ===== pre-game / empty-payload guard ===== */
+// A real engine export with no active club (pre-game / unloaded save) is the
+// literal "{}" — so DATA.dashboard is undefined. Render a friendly placeholder
+// instead of throwing an unguarded TypeError on D.header.
+if(!D || !D.header){
+  const c=document.querySelector(".content");
+  if(c) c.innerHTML='<div class="preempty">Waiting for a season — start or load a save to populate your dashboard.</div>';
+  throw new Error("dashboard: no active club in payload");
+}
+
+/* ===== header ===== */
+const h=D.header;
+$("#clubName").textContent=h.club_name;
+const mono=h.club_name.replace(/[^A-Za-z]/g,"").slice(0,1).toUpperCase()||"V";
+$("#hcrest").textContent=mono; $("#navCrest").textContent=mono;
+$("#dayVal").textContent=`${h.day_in_year} / 200`;
+const meta=$("#hmeta");
+[["div",h.division],["",h.region],["",`Year ${h.year}`],["",`Day ${h.day_in_year}/200`],["",h.current_phase]]
+  .forEach(([cl,tx])=>meta.appendChild(el("span","plate "+cl,esc(tx))));
+
+/* ===== day-rail ===== */
+const PHASES=[["Stage 1",0.14],["Regionals",0.52],["Masters",0.74],["Champions",0.92]];
+const dr=$("#dayrail"), prog=h.day_in_year/200;
+PHASES.forEach(([nm,p])=>{
+  const lit=p<=prog;
+  const tk=el("div","tick"+(lit?" lit":"")); tk.style.left=(p*100)+"%"; dr.appendChild(tk);
+  const lb=el("div","tlab"+(lit?" lit":""),nm); lb.style.left=(p*100)+"%"; dr.appendChild(lb);
+});
+$("#todayDot").style.left=(prog*100)+"%";
+
+/* ===== KPI strip ===== */
+const kc=$("#kpis");
+(D.kpis||[]).forEach((k,i)=>{
+  const t=el("div","kpi"+(k.today?" today":""));
+  t.classList.add("bevel-tr");
+  t.style.setProperty("--accent",cssvar(TONE[k.tone]||"--amber"));
+  t.innerHTML=`<div class="klab">${esc(k.label)}</div><div class="kval" data-final="${esc(k.value)}">${esc(k.value)}</div>${k.subline?`<div class="ksub">${esc(k.subline)}</div>`:""}<div class="kbar"></div>`;
+  if(k.label==="NEXT MATCH" && D.next_match && D.next_match.days_until===0){t.classList.add("today");}
+  kc.appendChild(t);
+});
+
+/* ===== objectives ===== */
+const ob=$("#objBody"); const o=D.objectives||{met:0,total:0,goals:[]};
+$("#objStat").textContent=o.total?`${o.met} of ${o.total} met`:"";
+const objGoals=o.goals||[];
+if(!objGoals.length) ob.appendChild(el("div","empty","No board objectives set for this phase."));
+objGoals.forEach(g=>{
+  const row=el("div","obj");
+  row.innerHTML=`<div class="top">
+      <span class="chip ${g.met?'met':'unmet'}">${g.met?'✓':''}</span>
+      ${g.mandatory?'<span class="pill primary">Primary</span>':''}
+      <span class="txt">${esc(g.text)}</span>
+      <span class="frac">${Math.round(g.pct*100)}%</span>
+    </div>
+    <div class="track"><div class="tf" data-pct="${g.pct}" style="background:${g.met?'var(--green)':'var(--amber)'}"></div></div>
+    <div class="prog">${esc(g.progress)}</div>`;
+  ob.appendChild(row);
+});
+
+/* ===== standings ===== */
+const sr=$("#stRows");
+$("#stStat").textContent=esc(D.header.current_phase||"");
+const standings=D.standings||[];
+if(!standings.length) sr.appendChild(el("div","empty","Standings not available yet."));
+standings.forEach(t=>{
+  const row=el("div","srow"+(t.is_user?" user":""));
+  row.setAttribute("role","row");
+  if(t.is_user) row.setAttribute("aria-current","true");
+  const tk=t.rank===1?"tick1":(t.rank<=4?"tick4":"");
+  const tkLabel=t.rank===1?'<span class="sr-only">League leader</span>':(t.rank<=4?'<span class="sr-only">Playoff position</span>':'');
+  const initial=esc(String(t.team_name).slice(0,1));
+  row.innerHTML=`<span class="rk ${tk}">${t.rank}${tkLabel}</span>
+    <span class="team"><span class="mono-chip">${initial}</span><span class="nm">${esc(t.team_name)}${t.is_user?'<span class="sr-only"> (your team)</span>':''}</span></span>
+    <span class="wl">${t.wins}-${t.losses}</span>
+    <span class="ov" data-ovr="${t.ovr}">${t.ovr.toFixed(1)}</span>`;
+  sr.appendChild(row);
+});
+sr.querySelectorAll(".ov").forEach(e=>e.style.color=ovrColor(parseFloat(e.dataset.ovr)));
+
+/* ===== next match hero ===== */
+const nm=D.next_match;
+// Fall back to the real ROSTER OVR KPI (not 0) and an em-dash rank when the
+// user has no resolvable standings row (preseason / unranked).
+const rosterOvrKpi=(D.kpis||[]).find(k=>k.label==="ROSTER OVR");
+const me=standings.find(s=>s.is_user)||{team_name:D.header.club_name,ovr:parseFloat(rosterOvrKpi&&rosterOvrKpi.value)||0,rank:"—"};
+if(!nm){
+  $("#cHero").innerHTML=`
+    <div class="hh"><span class="t">Next Match</span></div>
+    <div class="empty">No upcoming fixture — off-week.</div>`;
+}else{
+  const meInit=esc(String(me.team_name).slice(0,1)), oppInit=esc(String(nm.opponent).slice(0,1));
+  const diff=me.ovr-nm.opp_ovr, mePct=Math.max(15,Math.min(85,50+diff*6));
+  $("#cHero").innerHTML=`
+    <div class="hh"><span class="t">Next Match</span><span class="s num" style="color:var(--fg-muted)">${nm.days_until===0?'TODAY':'in '+nm.days_until+'d'}</span></div>
+    <div class="vs">
+      <div class="side"><div class="big-chip" style="background:color-mix(in srgb,var(--club) 22%,var(--bg-2));color:var(--club)">${meInit}</div><div class="sn">${esc(me.team_name)}</div><div class="so">OVR ${(+me.ovr).toFixed(0)} · #${esc(String(me.rank))}</div></div>
+      <div class="mid">VS</div>
+      <div class="side"><div class="big-chip" style="background:var(--bg-2);color:var(--fg-muted)">${oppInit}</div><div class="sn">${esc(nm.opponent)}</div><div class="so">OVR ${(+nm.opp_ovr).toFixed(0)} · #${esc(String(nm.opp_rank))}</div></div>
+    </div>
+    <div class="tape"><div style="width:${mePct}%;background:var(--club)"></div><div style="flex:1;background:var(--fg-ghost)"></div></div>
+    <button class="cta ${nm.days_until===0?'live':'soon'}">${nm.days_until===0?'ENTER MATCHDAY':'Awaiting matchday — in '+nm.days_until+'d'}</button>`;
+}
+
+/* ===== form & finance ===== */
+const bt=Array.isArray(D.budget_trend)?D.budget_trend.filter(v=>typeof v==="number"):[];
+const ffb=$("#ffBody");
+const formRows=D.last_5_form||[];
+const f5=formRows.length?formRows.map(f=>{
+  // Opponent/score are blank until a team match-log exists; fall back to a
+  // meaningful Win/Loss tooltip instead of a bare " ".
+  const tip=(f.opponent||f.score)?(f.opponent+' '+f.score).trim():(String(f.result).toUpperCase()==='W'?'Win':'Loss');
+  return `<div class="seg ${esc(String(f.result).toLowerCase())}" title="${esc(tip)}">${esc(f.result)}</div>`;
+}).join(""):'<div class="empty" style="padding:2px 0">No recent matches.</div>';
+const W=bt.length, last=W?bt[W-1]:0;
+// Slope-driven trend colour: rising budget reads positive, falling negative, flat neutral.
+const slope=W>=2?last-bt[0]:0;
+const trendVar=W<2?"--blue":(slope>0?"--green":(slope<0?"--red":"--blue"));
+const tc=cssvar(trendVar);
+let sparkHTML;
+if(W===0){
+  sparkHTML=`<div class="spark-empty">No budget history.</div>`;
+}else if(W===1){
+  // Single point — no line to draw; show a centred marker over the value.
+  sparkHTML=`<div class="sparkwrap"><div class="sparkdot" style="left:50%;top:50%;background:${tc};box-shadow:0 0 0 4px color-mix(in srgb,${tc} 22%,transparent)"></div></div>`;
+}else{
+  const mn=Math.min(...bt), mx=Math.max(...bt), pad=(mx-mn)*0.15||1;
+  const sw=300, sh=54, padX=7;
+  const span=(mx-mn)+2*pad;
+  const pts=bt.map((v,i)=>{
+    const x=padX+(i/(W-1))*(sw-2*padX), y=sh-4-((v-mn+pad)/span)*(sh-8); return[x,y];});
+  const path="M"+pts.map(p=>p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" L ");
+  // Area tapers to the baseline at both ends (no full-height rectangle block).
+  const area=path+` L ${pts[W-1][0].toFixed(1)} ${sh} L ${pts[0][0].toFixed(1)} ${sh} Z`;
+  const lp=pts[W-1];
+  const dotLeft=(lp[0]/sw)*100, dotTop=(lp[1]/sh)*100;
+  sparkHTML=`<div class="sparkwrap">
+    <svg class="spark" viewBox="0 0 ${sw} ${sh}" preserveAspectRatio="none">
+      <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${tc}" stop-opacity=".22"/><stop offset="1" stop-color="${tc}" stop-opacity="0"/></linearGradient></defs>
+      <path d="${area}" fill="url(#bg)"/>
+      <path class="sline" d="${path}" fill="none" stroke="${tc}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="sparkdot" style="left:${dotLeft.toFixed(2)}%;top:${dotTop.toFixed(2)}%;background:${tc};box-shadow:0 0 0 4px color-mix(in srgb,${tc} 22%,transparent)"></div>
+  </div>`;
+}
+ffb.innerHTML=`
+  <div><div class="lab">Last 5</div><div class="form5">${f5}</div></div>
+  <div><div class="lab">Budget Trend <span class="now">$${esc(String(last))}K</span></div>
+    ${sparkHTML}</div>`;
+
+/* ===== squad ===== */
+const sb=$("#squadBody"); const stars=D.star_players||[];
+$("#sqStat").textContent=stars.length+" · by OVR";
+if(!stars.length) sb.appendChild(el("div","empty","No players on the roster."));
+stars.forEach((p,i)=>{
+  const[rl,rc]=ROLE[p.primary_role]||["?","--fg-muted"];
+  const row=el("div","pl"+(i===0?" top":""));
+  row.innerHTML=`<span class="role" style="color:var(--fg);background:color-mix(in srgb,${cssvar(rc)} 18%,transparent);border:1px solid color-mix(in srgb,${cssvar(rc)} 45%,transparent)">${rl}</span>
+    <span class="ph">${esc(p.name)}</span>
+    ${p.igl?'<span class="tag">IGL</span>':''}
+    <span class="stat"><span class="sv" style="color:${ovrColor(p.ovr)}">${p.ovr}</span><span class="sl">OVR</span></span>
+    <span class="stat"><span class="sv" style="color:${p.avg_rating>=1.20?'var(--gold)':'var(--fg)'}">${p.avg_rating.toFixed(2)}</span><span class="sl">RAT</span></span>
+    <span class="stat"><span class="sv">${p.kd_ratio.toFixed(2)}</span><span class="sl">K/D</span></span>`;
+  sb.appendChild(row);
+});
+
+/* ===== news ===== */
+const nb=$("#newsBody");
+const newsItems=D.news||[];
+if(!newsItems.length) nb.appendChild(el("div","empty","No recent news."));
+newsItems.forEach(n=>{
+  const c=cssvar(NEWS_COLOR[n.category]||"--fg-muted");
+  const row=el("div","nw");
+  row.innerHTML=`<span class="npill" style="color:var(--fg);background:color-mix(in srgb,${c} 18%,transparent);border:1px solid color-mix(in srgb,${c} 45%,transparent)">${esc(n.category)}</span>
+    <span class="nh">${esc(n.headline)}</span>
+    <span class="nd">Y${esc(String(n.year))}·D${esc(String(n.day))}</span>`;
+  nb.appendChild(row);
+});
+
+/* ===== motion ===== */
+function animateCountUp(){
+  document.querySelectorAll(".kval").forEach(e=>{
+    const fin=e.dataset.final;
+    // Only count up a single CLEAN number (e.g. $620K, 76, #3, +18). Skip
+    // compound values like "9-3", "2d", "OPEN" — those display as-is.
+    if(!/^[$#+]?\d+(\.\d+)?[KMB%]?$/.test(fin))return;
+    const m=fin.match(/\d+(\.\d+)?/);
+    if(!m)return; const target=parseFloat(m[0]); const prefix=fin.slice(0,m.index), suffix=fin.slice(m.index+m[0].length);
+    const dec=(m[0].split(".")[1]||"").length; let start=null, dur=700;
+    function step(ts){ if(!start)start=ts; const t=Math.min(1,(ts-start)/dur); const ev=1-Math.pow(1-t,3);
+      e.textContent=prefix+(target*ev).toFixed(dec)+suffix; if(t<1)requestAnimationFrame(step); else e.textContent=fin; }
+    requestAnimationFrame(step);
+  });
+}
+function run(){
+  // entrance stagger
+  const seq=["#header","#dayrail","#cObjectives","#cStandings","#cHero","#cSquad","#cForm","#cNews"];
+  if(reduced){ document.querySelectorAll(".enter").forEach(e=>e.classList.add("in")); }
+  else{ seq.forEach((s,i)=>{ const e=$(s); if(e) setTimeout(()=>e.classList.add("in"), 60+i*45); }); }
+  // day-rail fill + today
+  setTimeout(()=>{ $("#dayFill").style.width=(prog*100)+"%"; $("#todayDot").style.opacity=1; }, reduced?0:120);
+  // objective tracks
+  setTimeout(()=>document.querySelectorAll(".tf").forEach(t=>t.style.width=(parseFloat(t.dataset.pct)*100)+"%"), reduced?0:300);
+  // sparkline draw-on
+  const sl=document.querySelector(".sline");
+  if(sl && !reduced){ const len=sl.getTotalLength(); sl.style.strokeDasharray=len; sl.style.strokeDashoffset=len;
+    sl.getBoundingClientRect(); sl.style.transition="stroke-dashoffset 800ms ease"; setTimeout(()=>sl.style.strokeDashoffset=0,250); }
+  // count up
+  if(!reduced) setTimeout(animateCountUp,150);
+}
+if(document.readyState!=="loading") run(); else document.addEventListener("DOMContentLoaded",run);
+</script>
+</body>
+</html>

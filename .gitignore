@@ -23,6 +23,25 @@ cpp/test_log.txt
 cpp/test_log_before.txt
 cpp/test_out.txt
 
+# Ad-hoc build/test/run output redirected to files during dev sessions
+# (anything directly under cpp/, not nested in src/ or third_party/)
+cpp/*.txt
+cpp/*.out
+cpp/*.err
+!cpp/CMakeLists.txt
+
+# Editor/tool backup files
+*.bak2
+CLAUDE.md.fablize-bak.*
+
+# fablize goal-tracking state (session-local, not project content)
+.fablize/
+cpp/.fablize/
+
+# Raw multi-agent workflow scratch (findings/verify passes, workflow scripts);
+# distilled summaries like AUDIT_INSIGHTS_*.md are tracked separately
+.audit/
+
 # Compiled launcher copies (also at the project root + Desktop)
 /Play.exe
 

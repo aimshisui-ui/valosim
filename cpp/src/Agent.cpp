@@ -269,4 +269,41 @@ double agent_flavor_fit(const Agent& a, const MapCompPreference& pref) {
     return s;
 }
 
+// Curated per-map SIGNATURE agents — the 2-3 meta-near-mandatory picks per map.
+// All names exist in g_agents (above). Spans roles deliberately: this is how
+// the per-map picker learns "Breeze wants a Viper", "lockdown maps want a
+// Killjoy/Cypher", etc. — and why a forced off-role flex lands on the agent the
+// map actually needs rather than an arbitrary same-role pick.
+static const std::unordered_map<std::string, std::vector<std::string>>&
+map_signature_table() {
+    static const std::unordered_map<std::string, std::vector<std::string>> t = {
+        {"Ascent",   {"Sova", "Killjoy", "Omen"}},
+        {"Bind",     {"Raze", "Skye", "Brimstone"}},
+        {"Haven",    {"Sova", "Cypher", "Breach"}},
+        {"Split",    {"Raze", "Cypher", "Sage"}},
+        {"Icebox",   {"Viper", "Sova", "Jett"}},
+        {"Breeze",   {"Viper", "Jett", "Cypher"}},
+        {"Fracture", {"Breach", "Brimstone", "Neon"}},
+        {"Pearl",    {"Astra", "Fade", "Cypher"}},
+        {"Lotus",    {"Raze", "Fade", "Viper"}},
+        {"Sunset",   {"Omen", "Raze", "Fade"}},
+        {"Abyss",    {"Sova", "Cypher", "Omen"}},
+    };
+    return t;
+}
+
+const std::vector<std::string>& map_signature_agents(const std::string& map_name) {
+    static const std::vector<std::string> kNone;
+    const auto& t = map_signature_table();
+    auto it = t.find(map_name);
+    return it == t.end() ? kNone : it->second;
+}
+
+bool is_map_signature_agent(const std::string& agent_name,
+                            const std::string& map_name) {
+    const auto& sig = map_signature_agents(map_name);
+    for (const auto& n : sig) if (n == agent_name) return true;
+    return false;
+}
+
 }  // namespace vlr

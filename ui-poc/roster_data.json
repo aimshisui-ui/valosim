@@ -1,0 +1,1092 @@
+{
+  "schema_version": 1,
+  "exporter": "VLR Manager Valosim",
+  "club_color": "#2F40D8",
+  "roster": {
+    "header": {
+      "club_name": "Mirage",
+      "tag": "MIR",
+      "division": "VCT",
+      "region": "Americas",
+      "year": 2026,
+      "day_in_year": 14,
+      "current_phase": "Stage 1"
+    },
+    "kpis": [
+      {
+        "label": "ROSTER OVR",
+        "value": "57",
+        "tone": "crit"
+      },
+      {
+        "label": "PAYROLL",
+        "value": "$835K",
+        "tone": "info",
+        "subline": "per year"
+      },
+      {
+        "label": "WAGE BUDGET",
+        "value": "$0",
+        "tone": "warn",
+        "subline": "to spend"
+      },
+      {
+        "label": "AVG AGE",
+        "value": "21.4",
+        "tone": "pos"
+      },
+      {
+        "label": "CHEMISTRY",
+        "value": "49",
+        "tone": "info"
+      },
+      {
+        "label": "WINDOW",
+        "value": "OPENING",
+        "tone": "info",
+        "subline": "Building"
+      }
+    ],
+    "team": {
+      "ovr": 56.8,
+      "prestige": 65,
+      "brand": "Academy Powerhouse",
+      "wealth_tier": "Stable",
+      "window": "OPENING",
+      "payroll_k": 835,
+      "wage_envelope_k": 0,
+      "committed_payroll_k": 0,
+      "sponsorship_k": 800,
+      "net_transfer_k": 0,
+      "size": 5,
+      "avg_age": 21.4,
+      "chemistry_index": 49
+    },
+    "players": [
+      {
+        "slot": "starter",
+        "idx": 0,
+        "name": "hazeka",
+        "role": "Duelist",
+        "contract_role": "Duelist",
+        "age": 21,
+        "country": "Chile",
+        "country_iso": "cl",
+        "region": "Americas",
+        "ovr": 61,
+        "potential": 89,
+        "growth": 28,
+        "trajectory": "Established",
+        "avg_rating": 1.00,
+        "kd": 1.06,
+        "season_matches": 13,
+        "season_avg_rating": 1.00,
+        "season_kd": 1.06,
+        "igl": false,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 46,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 2,
+          "salary_k": 93,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Jett",
+        "agent_pool_size": 5,
+        "agent_pool": [
+          {
+            "name": "Jett",
+            "role": "Duelist"
+          },
+          {
+            "name": "Chamber",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Phoenix",
+            "role": "Duelist"
+          },
+          {
+            "name": "Iso",
+            "role": "Duelist"
+          }
+        ],
+        "personality": {
+          "ambition": 70,
+          "loyalty": 69,
+          "greed": 59,
+          "ego": 42,
+          "desire": "Mercenary"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 63
+          },
+          {
+            "name": "headshot",
+            "value": 73
+          },
+          {
+            "name": "entry",
+            "value": 64
+          },
+          {
+            "name": "utility",
+            "value": 55
+          },
+          {
+            "name": "game_sense",
+            "value": 60
+          },
+          {
+            "name": "clutch",
+            "value": 66
+          },
+          {
+            "name": "decision_making",
+            "value": 62
+          },
+          {
+            "name": "intelligence",
+            "value": 64
+          },
+          {
+            "name": "aggressiveness",
+            "value": 72
+          },
+          {
+            "name": "positioning",
+            "value": 57
+          },
+          {
+            "name": "communication",
+            "value": 71
+          },
+          {
+            "name": "adaptability",
+            "value": 64
+          },
+          {
+            "name": "leadership",
+            "value": 72
+          },
+          {
+            "name": "reaction",
+            "value": 69
+          },
+          {
+            "name": "spike_handle",
+            "value": 54
+          },
+          {
+            "name": "anchor",
+            "value": 63
+          },
+          {
+            "name": "movement",
+            "value": 62
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 57
+          },
+          {
+            "name": "lurking",
+            "value": 68
+          },
+          {
+            "name": "awping",
+            "value": 48
+          },
+          {
+            "name": "stamina",
+            "value": 56
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 56
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 72
+          },
+          {
+            "name": "anti_strat",
+            "value": 56
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 249,
+          "deaths": 236,
+          "assists": 3,
+          "kd": 1.06,
+          "adr": 192,
+          "hs_pct": 35,
+          "kast_pct": 53,
+          "entry_pct": 54,
+          "avg_rating": 1.00
+        },
+        "solo": {
+          "mmr": 1405,
+          "peak_mmr": 1405,
+          "kd": 1.39,
+          "wins": 13,
+          "losses": 9
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 1,
+        "name": "WhiskEdge",
+        "role": "Duelist",
+        "contract_role": "Duelist",
+        "age": 22,
+        "country": "USA",
+        "country_iso": "us",
+        "region": "Americas",
+        "ovr": 63,
+        "potential": 77,
+        "growth": 14,
+        "trajectory": "Established",
+        "avg_rating": 0.98,
+        "kd": 1.05,
+        "season_matches": 13,
+        "season_avg_rating": 0.98,
+        "season_kd": 1.05,
+        "igl": false,
+        "flex": true,
+        "transfer_requested": false,
+        "mood": 45,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 4,
+          "salary_k": 75,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Yoru",
+        "agent_pool_size": 6,
+        "agent_pool": [
+          {
+            "name": "Yoru",
+            "role": "Duelist"
+          },
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Brimstone",
+            "role": "Controller"
+          },
+          {
+            "name": "Raze",
+            "role": "Duelist"
+          },
+          {
+            "name": "Waylay",
+            "role": "Duelist"
+          },
+          {
+            "name": "Sova",
+            "role": "Initiator"
+          }
+        ],
+        "personality": {
+          "ambition": 79,
+          "loyalty": 68,
+          "greed": 32,
+          "ego": 68,
+          "desire": "Competitor"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 53
+          },
+          {
+            "name": "headshot",
+            "value": 52
+          },
+          {
+            "name": "entry",
+            "value": 66
+          },
+          {
+            "name": "utility",
+            "value": 65
+          },
+          {
+            "name": "game_sense",
+            "value": 73
+          },
+          {
+            "name": "clutch",
+            "value": 64
+          },
+          {
+            "name": "decision_making",
+            "value": 73
+          },
+          {
+            "name": "intelligence",
+            "value": 81
+          },
+          {
+            "name": "aggressiveness",
+            "value": 57
+          },
+          {
+            "name": "positioning",
+            "value": 59
+          },
+          {
+            "name": "communication",
+            "value": 59
+          },
+          {
+            "name": "adaptability",
+            "value": 59
+          },
+          {
+            "name": "leadership",
+            "value": 58
+          },
+          {
+            "name": "reaction",
+            "value": 60
+          },
+          {
+            "name": "spike_handle",
+            "value": 54
+          },
+          {
+            "name": "anchor",
+            "value": 55
+          },
+          {
+            "name": "movement",
+            "value": 68
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 68
+          },
+          {
+            "name": "lurking",
+            "value": 74
+          },
+          {
+            "name": "awping",
+            "value": 79
+          },
+          {
+            "name": "stamina",
+            "value": 61
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 78
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 79
+          },
+          {
+            "name": "anti_strat",
+            "value": 70
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 231,
+          "deaths": 220,
+          "assists": 7,
+          "kd": 1.05,
+          "adr": 178,
+          "hs_pct": 32,
+          "kast_pct": 52,
+          "entry_pct": 51,
+          "avg_rating": 0.98
+        },
+        "solo": {
+          "mmr": 1304,
+          "peak_mmr": 1304,
+          "kd": 1.36,
+          "wins": 9,
+          "losses": 11
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 2,
+        "name": "lush",
+        "role": "Controller",
+        "contract_role": "Controller",
+        "age": 22,
+        "country": "Canada",
+        "country_iso": "ca",
+        "region": "Americas",
+        "ovr": 56,
+        "potential": 68,
+        "growth": 12,
+        "trajectory": "Established",
+        "avg_rating": 0.86,
+        "kd": 0.84,
+        "season_matches": 13,
+        "season_avg_rating": 0.86,
+        "season_kd": 0.84,
+        "igl": false,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 44,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 4,
+          "salary_k": 54,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Viper",
+        "agent_pool_size": 4,
+        "agent_pool": [
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Vyse",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Cypher",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Brimstone",
+            "role": "Controller"
+          }
+        ],
+        "personality": {
+          "ambition": 49,
+          "loyalty": 64,
+          "greed": 67,
+          "ego": 59,
+          "desire": "Stability Seeker"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 56
+          },
+          {
+            "name": "headshot",
+            "value": 47
+          },
+          {
+            "name": "entry",
+            "value": 54
+          },
+          {
+            "name": "utility",
+            "value": 59
+          },
+          {
+            "name": "game_sense",
+            "value": 65
+          },
+          {
+            "name": "clutch",
+            "value": 54
+          },
+          {
+            "name": "decision_making",
+            "value": 66
+          },
+          {
+            "name": "intelligence",
+            "value": 61
+          },
+          {
+            "name": "aggressiveness",
+            "value": 48
+          },
+          {
+            "name": "positioning",
+            "value": 67
+          },
+          {
+            "name": "communication",
+            "value": 54
+          },
+          {
+            "name": "adaptability",
+            "value": 57
+          },
+          {
+            "name": "leadership",
+            "value": 59
+          },
+          {
+            "name": "reaction",
+            "value": 53
+          },
+          {
+            "name": "spike_handle",
+            "value": 62
+          },
+          {
+            "name": "anchor",
+            "value": 64
+          },
+          {
+            "name": "movement",
+            "value": 60
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 60
+          },
+          {
+            "name": "lurking",
+            "value": 64
+          },
+          {
+            "name": "awping",
+            "value": 65
+          },
+          {
+            "name": "stamina",
+            "value": 65
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 63
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 43
+          },
+          {
+            "name": "anti_strat",
+            "value": 54
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 181,
+          "deaths": 215,
+          "assists": 25,
+          "kd": 0.84,
+          "adr": 149,
+          "hs_pct": 25,
+          "kast_pct": 50,
+          "entry_pct": 50,
+          "avg_rating": 0.86
+        },
+        "solo": {
+          "mmr": 1324,
+          "peak_mmr": 1324,
+          "kd": 1.38,
+          "wins": 11,
+          "losses": 8
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 3,
+        "name": "CometPulse",
+        "role": "Sentinel",
+        "contract_role": "Sentinel",
+        "age": 20,
+        "country": "Brazil",
+        "country_iso": "br",
+        "region": "Americas",
+        "ovr": 53,
+        "potential": 66,
+        "growth": 13,
+        "trajectory": "Established",
+        "avg_rating": 1.08,
+        "kd": 1.04,
+        "season_matches": 13,
+        "season_avg_rating": 1.08,
+        "season_kd": 1.04,
+        "igl": false,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 49,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 4,
+          "salary_k": 28,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Killjoy",
+        "agent_pool_size": 5,
+        "agent_pool": [
+          {
+            "name": "Killjoy",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Astra",
+            "role": "Controller"
+          },
+          {
+            "name": "Harbor",
+            "role": "Controller"
+          },
+          {
+            "name": "Miks",
+            "role": "Controller"
+          },
+          {
+            "name": "Sage",
+            "role": "Sentinel"
+          }
+        ],
+        "personality": {
+          "ambition": 33,
+          "loyalty": 41,
+          "greed": 67,
+          "ego": 45,
+          "desire": "Stability Seeker"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 57
+          },
+          {
+            "name": "headshot",
+            "value": 52
+          },
+          {
+            "name": "entry",
+            "value": 61
+          },
+          {
+            "name": "utility",
+            "value": 60
+          },
+          {
+            "name": "game_sense",
+            "value": 60
+          },
+          {
+            "name": "clutch",
+            "value": 52
+          },
+          {
+            "name": "decision_making",
+            "value": 54
+          },
+          {
+            "name": "intelligence",
+            "value": 51
+          },
+          {
+            "name": "aggressiveness",
+            "value": 59
+          },
+          {
+            "name": "positioning",
+            "value": 53
+          },
+          {
+            "name": "communication",
+            "value": 49
+          },
+          {
+            "name": "adaptability",
+            "value": 64
+          },
+          {
+            "name": "leadership",
+            "value": 56
+          },
+          {
+            "name": "reaction",
+            "value": 56
+          },
+          {
+            "name": "spike_handle",
+            "value": 57
+          },
+          {
+            "name": "anchor",
+            "value": 70
+          },
+          {
+            "name": "movement",
+            "value": 52
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 56
+          },
+          {
+            "name": "lurking",
+            "value": 53
+          },
+          {
+            "name": "awping",
+            "value": 38
+          },
+          {
+            "name": "stamina",
+            "value": 57
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 63
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 50
+          },
+          {
+            "name": "anti_strat",
+            "value": 44
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 219,
+          "deaths": 211,
+          "assists": 19,
+          "kd": 1.04,
+          "adr": 169,
+          "hs_pct": 32,
+          "kast_pct": 56,
+          "entry_pct": 67,
+          "avg_rating": 1.08
+        },
+        "solo": {
+          "mmr": 1303,
+          "peak_mmr": 1310,
+          "kd": 1.44,
+          "wins": 9,
+          "losses": 14
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      },
+      {
+        "slot": "starter",
+        "idx": 4,
+        "name": "krypto",
+        "role": "Controller",
+        "contract_role": "Controller",
+        "age": 22,
+        "country": "USA",
+        "country_iso": "us",
+        "region": "Americas",
+        "ovr": 51,
+        "potential": 60,
+        "growth": 9,
+        "trajectory": "Established",
+        "avg_rating": 0.82,
+        "kd": 0.66,
+        "season_matches": 13,
+        "season_avg_rating": 0.82,
+        "season_kd": 0.66,
+        "igl": true,
+        "flex": false,
+        "transfer_requested": false,
+        "mood": 43,
+        "discontent": 0.00,
+        "contract": {
+          "years_left": 3,
+          "salary_k": 45,
+          "signing_bonus_k": 0,
+          "promised_starter": false
+        },
+        "signature_agent": "Sova",
+        "agent_pool_size": 5,
+        "agent_pool": [
+          {
+            "name": "Viper",
+            "role": "Controller"
+          },
+          {
+            "name": "Yoru",
+            "role": "Duelist"
+          },
+          {
+            "name": "Killjoy",
+            "role": "Sentinel"
+          },
+          {
+            "name": "Astra",
+            "role": "Controller"
+          },
+          {
+            "name": "Brimstone",
+            "role": "Controller"
+          }
+        ],
+        "personality": {
+          "ambition": 34,
+          "loyalty": 69,
+          "greed": 55,
+          "ego": 49,
+          "desire": "Competitor"
+        },
+        "attributes": [
+          {
+            "name": "aim",
+            "value": 28
+          },
+          {
+            "name": "headshot",
+            "value": 29
+          },
+          {
+            "name": "entry",
+            "value": 31
+          },
+          {
+            "name": "utility",
+            "value": 47
+          },
+          {
+            "name": "game_sense",
+            "value": 57
+          },
+          {
+            "name": "clutch",
+            "value": 49
+          },
+          {
+            "name": "decision_making",
+            "value": 64
+          },
+          {
+            "name": "intelligence",
+            "value": 68
+          },
+          {
+            "name": "aggressiveness",
+            "value": 37
+          },
+          {
+            "name": "positioning",
+            "value": 50
+          },
+          {
+            "name": "communication",
+            "value": 58
+          },
+          {
+            "name": "adaptability",
+            "value": 40
+          },
+          {
+            "name": "leadership",
+            "value": 78
+          },
+          {
+            "name": "reaction",
+            "value": 51
+          },
+          {
+            "name": "spike_handle",
+            "value": 40
+          },
+          {
+            "name": "anchor",
+            "value": 56
+          },
+          {
+            "name": "movement",
+            "value": 50
+          },
+          {
+            "name": "crosshair_placement",
+            "value": 43
+          },
+          {
+            "name": "lurking",
+            "value": 51
+          },
+          {
+            "name": "awping",
+            "value": 60
+          },
+          {
+            "name": "stamina",
+            "value": 47
+          },
+          {
+            "name": "mid_round_calling",
+            "value": 79
+          },
+          {
+            "name": "economy_mgmt",
+            "value": 76
+          },
+          {
+            "name": "anti_strat",
+            "value": 63
+          }
+        ],
+        "career": {
+          "matches": 13,
+          "kills": 150,
+          "deaths": 228,
+          "assists": 54,
+          "kd": 0.66,
+          "adr": 125,
+          "hs_pct": 31,
+          "kast_pct": 53,
+          "entry_pct": 48,
+          "avg_rating": 0.82
+        },
+        "solo": {
+          "mmr": 1202,
+          "peak_mmr": 1202,
+          "kd": 1.03,
+          "wins": 9,
+          "losses": 11
+        },
+        "accolades": {
+          "regional": 0,
+          "masters": 0,
+          "worlds": 0,
+          "mvps": 0,
+          "role_awards": 0,
+          "igl_oty": 0,
+          "total": 0,
+          "titles": []
+        },
+        "joined_year": 2026,
+        "titles_with_org": 0
+      }
+    ],
+    "chemistry": [
+      {
+        "a": "lush",
+        "b": "krypto",
+        "value": 0.03
+      },
+      {
+        "a": "lush",
+        "b": "WhiskEdge",
+        "value": -0.04
+      },
+      {
+        "a": "hazeka",
+        "b": "krypto",
+        "value": -0.04
+      },
+      {
+        "a": "hazeka",
+        "b": "WhiskEdge",
+        "value": -0.04
+      },
+      {
+        "a": "lush",
+        "b": "hazeka",
+        "value": -0.05
+      },
+      {
+        "a": "WhiskEdge",
+        "b": "krypto",
+        "value": -0.05
+      }
+    ],
+    "staff": {
+      "coach": {
+        "name": "Les Levesque",
+        "personality": "Veteran Mentor",
+        "tactical": 71,
+        "development": 79,
+        "leadership": 85,
+        "experience": 86,
+        "reputation": 40,
+        "career_titles": 0,
+        "career_seasons": 3,
+        "salary_k": 180
+      },
+      "scout": {
+        "name": "Todd Williams",
+        "personality": "Network Broker",
+        "judgement": 51,
+        "network": 99,
+        "projection": 70,
+        "experience": 56,
+        "reputation": 61,
+        "quality": 68,
+        "salary_k": 180
+      },
+      "analyst": {
+        "name": "Jon McCoy",
+        "personality": "Veteran Tactician",
+        "tactical_read": 74,
+        "opponent_insight": 67,
+        "prep": 61,
+        "experience": 91,
+        "reputation": 58,
+        "quality": 71,
+        "report_depth": 5,
+        "salary_k": 180
+      }
+    }
+  }
+}

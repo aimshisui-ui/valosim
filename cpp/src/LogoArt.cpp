@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace vlr {
 
@@ -15,484 +16,471 @@ inline ImVec2 polar(ImVec2 c, float r, float angle_rad) {
     return ImVec2(c.x + r * std::cos(angle_rad), c.y + r * std::sin(angle_rad));
 }
 
-inline ImVec2 v_add(ImVec2 a, ImVec2 b) { return ImVec2(a.x + b.x, a.y + b.y); }
-inline ImVec2 v_mul(ImVec2 a, float s)  { return ImVec2(a.x * s, a.y * s); }
+// Color math — darker shade / lighter tint of a packed RGBA. Drives the
+// frame's depth stack (rim → fill → highlight) so every team's badge has
+// the same "raised patch" feel regardless of source colors.
+inline ImU32 shade(ImU32 col, float factor) {
+    int r = (col      ) & 0xFF;
+    int g = (col >>  8) & 0xFF;
+    int b = (col >> 16) & 0xFF;
+    int a = (col >> 24) & 0xFF;
+    r = std::max(0, static_cast<int>(r * factor));
+    g = std::max(0, static_cast<int>(g * factor));
+    b = std::max(0, static_cast<int>(b * factor));
+    return IM_COL32(r, g, b, a);
+}
+
+inline ImU32 tint(ImU32 col, float factor) {
+    int r = (col      ) & 0xFF;
+    int g = (col >>  8) & 0xFF;
+    int b = (col >> 16) & 0xFF;
+    int a = (col >> 24) & 0xFF;
+    r = std::min(255, r + static_cast<int>((255 - r) * factor));
+    g = std::min(255, g + static_cast<int>((255 - g) * factor));
+    b = std::min(255, b + static_cast<int>((255 - b) * factor));
+    return IM_COL32(r, g, b, a);
+}
+
+inline float luma(ImU32 col) {
+    int r = (col      ) & 0xFF;
+    int g = (col >>  8) & 0xFF;
+    int b = (col >> 16) & 0xFF;
+    return (0.299f * r + 0.587f * g + 0.114f * b) / 255.0f;
+}
+
+// Rebuild an ImU32 with a different alpha channel (preserving RGB). Used to
+// derive the soft inner-glow ring color from the team's hairline accent.
+inline ImU32 with_alpha(ImU32 col, int a) {
+    return (col & 0x00FFFFFFu) | (static_cast<ImU32>(a & 0xFF) << 24);
+}
+
+// Pick a high-contrast monogram color against the primary backplate.
+// Falls back to white/black when accent fails the contrast check — same
+// logic real esports identities use to keep wordmarks legible.
+inline ImU32 pick_monogram_color(ImU32 primary, ImU32 accent) {
+    float lp = luma(primary);
+    float la = luma(accent);
+    // Need at least 0.30 luma delta for the accent to read on the backplate.
+    if (std::fabs(lp - la) > 0.30f) return accent;
+    return (lp < 0.50f) ? IM_COL32(0xF8, 0xF8, 0xFA, 0xFF)
+                        : IM_COL32(0x12, 0x14, 0x1A, 0xFF);
+}
 
 // ---------------------------------------------------------------------------
-// Individual shape draw helpers.
-//
-// All helpers accept the center, radius, and the two style colors. They
-// render into the provided ImDrawList. Geometry uses normalized offsets
-// (× radius) so each shape scales cleanly with the caller's size request.
+// Frame backplates. Five polished shapes — every team's logo sits inside
+// one of these. Each frame fills with the team's primary color, layers a
+// darker shade rim + lighter top highlight for depth, and ends with a
+// hairline accent stroke. Shape selected per-team via shape_idx % 5.
 // ---------------------------------------------------------------------------
 
-void draw_shield(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Pentagonal-ish shield: flat top with two small notches in the
-    // shoulders, tapering to a point at the bottom.
-    ImVec2 pts[6] = {
-        ImVec2(c.x - r * 0.85f, c.y - r * 0.80f),  // top-left
-        ImVec2(c.x + r * 0.85f, c.y - r * 0.80f),  // top-right
-        ImVec2(c.x + r * 0.85f, c.y + r * 0.10f),  // mid-right
-        ImVec2(c.x + r * 0.20f, c.y + r * 0.95f),  // bottom-right curve
-        ImVec2(c.x - r * 0.20f, c.y + r * 0.95f),  // bottom-left curve
-        ImVec2(c.x - r * 0.85f, c.y + r * 0.10f),  // mid-left
-    };
-    dl->AddConvexPolyFilled(pts, 6, primary);
-    // Accent border via polyline (closed).
-    dl->AddPolyline(pts, 6, accent, ImDrawFlags_Closed, std::max(1.0f, r * 0.10f));
-    // Inner accent chevron — a single thick line down the middle.
-    dl->AddLine(ImVec2(c.x, c.y - r * 0.50f),
-                ImVec2(c.x, c.y + r * 0.65f),
-                accent, std::max(1.0f, r * 0.15f));
+// Draws a soft drop shadow disc beneath whatever frame is about to render.
+// Shadow tint is a slightly blue-leaning charcoal (matches the deep-charcoal
+// surface bg around the badge) — pure black halos read as "stock CG asset"
+// against a real broadcast palette.
+inline void drop_shadow(ImDrawList* dl, ImVec2 c, float r) {
+    // Two offset translucent discs stack into a soft glow.
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.04f, c.y + r * 0.08f),
+                        r * 1.04f, IM_COL32(0x05, 0x08, 0x10, 60), 36);
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.02f, c.y + r * 0.05f),
+                        r * 1.02f, IM_COL32(0x05, 0x08, 0x10, 40), 36);
 }
 
-void draw_hexagon(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    ImVec2 pts[6];
-    for (int i = 0; i < 6; ++i) {
-        float a = (kTau * i / 6.0f) - kPi / 2.0f;  // start with point up
-        pts[i] = polar(c, r * 0.95f, a);
+void frame_shield(ImDrawList* dl, ImVec2 c, float r,
+                  ImU32 primary, ImU32 accent) {
+    drop_shadow(dl, c, r);
+    ImU32 rim   = shade(primary, 0.42f);
+    ImU32 fill  = primary;
+    ImU32 hi    = tint(primary, 0.20f);
+    // 7-vertex heraldic shield — flat top, narrow shoulders, tapered point.
+    auto build = [&](float scale, ImVec2 pts[7]) {
+        float sr = r * scale;
+        pts[0] = ImVec2(c.x - sr * 0.88f, c.y - sr * 0.78f);
+        pts[1] = ImVec2(c.x + sr * 0.88f, c.y - sr * 0.78f);
+        pts[2] = ImVec2(c.x + sr * 0.88f, c.y - sr * 0.10f);
+        pts[3] = ImVec2(c.x + sr * 0.72f, c.y + sr * 0.55f);
+        pts[4] = ImVec2(c.x,              c.y + sr * 0.98f);
+        pts[5] = ImVec2(c.x - sr * 0.72f, c.y + sr * 0.55f);
+        pts[6] = ImVec2(c.x - sr * 0.88f, c.y - sr * 0.10f);
+    };
+    ImVec2 rim_pts[7];   build(1.00f, rim_pts);
+    ImVec2 fill_pts[7];  build(0.95f, fill_pts);
+    dl->AddConvexPolyFilled(rim_pts,  7, rim);
+    dl->AddConvexPolyFilled(fill_pts, 7, fill);
+    // Top highlight band — slight gradient hint via a brightened crescent.
+    ImVec2 hl[5] = {
+        ImVec2(c.x - r * 0.76f, c.y - r * 0.66f),
+        ImVec2(c.x + r * 0.76f, c.y - r * 0.66f),
+        ImVec2(c.x + r * 0.60f, c.y - r * 0.32f),
+        ImVec2(c.x,             c.y - r * 0.22f),
+        ImVec2(c.x - r * 0.60f, c.y - r * 0.32f),
+    };
+    dl->AddConvexPolyFilled(hl, 5, IM_COL32(255, 250, 235, 28));
+    (void)hi;
+    // Soft inner-glow ring (30% accent) inset ~2px from the hairline border.
+    // Subtly lifts the badge so it reads as a layered patch rather than flat.
+    {
+        ImVec2 inner[7];
+        build(0.91f, inner);
+        dl->AddPolyline(inner, 7, with_alpha(accent, 0x4D),
+                        ImDrawFlags_Closed, 1.0f);
     }
-    dl->AddConvexPolyFilled(pts, 6, primary);
-    dl->AddPolyline(pts, 6, accent, ImDrawFlags_Closed, std::max(1.0f, r * 0.10f));
+    // Hairline accent border.
+    dl->AddPolyline(fill_pts, 7, accent, ImDrawFlags_Closed,
+                    std::max(1.4f, r * 0.045f));
 }
 
-void draw_diamond_logo(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    ImVec2 pts[4] = {
-        ImVec2(c.x,          c.y - r * 0.95f),
-        ImVec2(c.x + r * 0.80f, c.y),
-        ImVec2(c.x,          c.y + r * 0.95f),
-        ImVec2(c.x - r * 0.80f, c.y),
-    };
-    dl->AddConvexPolyFilled(pts, 4, primary);
-    // Inset accent diamond.
-    ImVec2 in[4] = {
-        ImVec2(c.x,          c.y - r * 0.45f),
-        ImVec2(c.x + r * 0.38f, c.y),
-        ImVec2(c.x,          c.y + r * 0.45f),
-        ImVec2(c.x - r * 0.38f, c.y),
-    };
-    dl->AddConvexPolyFilled(in, 4, accent);
-}
-
-void draw_circle_logo(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    dl->AddCircleFilled(c, r * 0.92f, primary, 32);
-    dl->AddCircle(c, r * 0.92f, accent, 32, std::max(1.0f, r * 0.14f));
-    // Inner accent ring (smaller).
-    dl->AddCircle(c, r * 0.50f, accent, 24, std::max(1.0f, r * 0.10f));
-}
-
-void draw_triangle_logo(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Equilateral, point up.
-    ImVec2 p1(c.x,            c.y - r * 0.85f);
-    ImVec2 p2(c.x + r * 0.85f, c.y + r * 0.55f);
-    ImVec2 p3(c.x - r * 0.85f, c.y + r * 0.55f);
-    dl->AddTriangleFilled(p1, p2, p3, primary);
-    ImVec2 pts[3] = {p1, p2, p3};
-    dl->AddPolyline(pts, 3, accent, ImDrawFlags_Closed, std::max(1.0f, r * 0.12f));
-}
-
-void draw_star(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // 5-point star using 10 alternating outer/inner vertices.
-    ImVec2 pts[10];
-    float outer = r * 0.95f;
-    float inner = r * 0.42f;
-    for (int i = 0; i < 10; ++i) {
-        float a = (kTau * i / 10.0f) - kPi / 2.0f;
-        float rad = (i % 2 == 0) ? outer : inner;
-        pts[i] = polar(c, rad, a);
-    }
-    // Star is concave — split into triangles fanned from center for fill.
-    for (int i = 0; i < 10; ++i) {
-        int j = (i + 1) % 10;
-        dl->AddTriangleFilled(c, pts[i], pts[j], primary);
-    }
-    dl->AddPolyline(pts, 10, accent, ImDrawFlags_Closed, std::max(1.0f, r * 0.08f));
-}
-
-void draw_lightning(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // 7-vertex Z-bolt. Concave overall but we draw it as 2 convex halves.
-    // Top half: from upper-right peak down-left to the middle waist.
-    ImVec2 a(c.x + r * 0.45f, c.y - r * 0.85f);
-    ImVec2 b(c.x - r * 0.20f, c.y - r * 0.10f);
-    ImVec2 cc(c.x + r * 0.10f, c.y - r * 0.10f);
-    ImVec2 d(c.x + r * 0.55f, c.y - r * 0.55f);
-    ImVec2 top[4] = {a, d, cc, b};
-    dl->AddConvexPolyFilled(top, 4, primary);
-    // Bottom half: from middle waist down-right then back left.
-    ImVec2 e(c.x - r * 0.45f, c.y + r * 0.85f);
-    ImVec2 f(c.x + r * 0.20f, c.y + r * 0.10f);
-    ImVec2 g(c.x - r * 0.10f, c.y + r * 0.10f);
-    ImVec2 h(c.x - r * 0.55f, c.y + r * 0.55f);
-    ImVec2 bot[4] = {e, h, g, f};
-    dl->AddConvexPolyFilled(bot, 4, primary);
-    // Accent outline strokes.
-    dl->AddLine(a, d, accent, std::max(1.0f, r * 0.10f));
-    dl->AddLine(b, e, accent, std::max(1.0f, r * 0.10f));
-}
-
-void draw_crown(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // 3-point crown: base bar + three triangular peaks.
-    // Base.
-    ImVec2 base_tl(c.x - r * 0.85f, c.y + r * 0.30f);
-    ImVec2 base_tr(c.x + r * 0.85f, c.y + r * 0.30f);
-    ImVec2 base_br(c.x + r * 0.85f, c.y + r * 0.75f);
-    ImVec2 base_bl(c.x - r * 0.85f, c.y + r * 0.75f);
-    dl->AddQuadFilled(base_tl, base_tr, base_br, base_bl, primary);
-    // 3 peaks (center taller).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.85f, c.y + r * 0.30f),
-                          ImVec2(c.x - r * 0.40f, c.y + r * 0.30f),
-                          ImVec2(c.x - r * 0.62f, c.y - r * 0.45f), primary);
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.20f, c.y + r * 0.30f),
-                          ImVec2(c.x + r * 0.20f, c.y + r * 0.30f),
-                          ImVec2(c.x,             c.y - r * 0.85f), primary);
-    dl->AddTriangleFilled(ImVec2(c.x + r * 0.40f, c.y + r * 0.30f),
-                          ImVec2(c.x + r * 0.85f, c.y + r * 0.30f),
-                          ImVec2(c.x + r * 0.62f, c.y - r * 0.45f), primary);
-    // Accent jewel dots on the peaks.
-    dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.60f), r * 0.12f, accent, 12);
-    dl->AddCircleFilled(ImVec2(c.x - r * 0.62f, c.y - r * 0.20f), r * 0.10f, accent, 10);
-    dl->AddCircleFilled(ImVec2(c.x + r * 0.62f, c.y - r * 0.20f), r * 0.10f, accent, 10);
-}
-
-void draw_wolf(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Stylized wolf head silhouette: 2 triangle ears + circle face + triangle snout.
-    // Ears (set wide).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.85f, c.y - r * 0.25f),
-                          ImVec2(c.x - r * 0.45f, c.y - r * 0.35f),
-                          ImVec2(c.x - r * 0.55f, c.y - r * 0.95f), primary);
-    dl->AddTriangleFilled(ImVec2(c.x + r * 0.85f, c.y - r * 0.25f),
-                          ImVec2(c.x + r * 0.45f, c.y - r * 0.35f),
-                          ImVec2(c.x + r * 0.55f, c.y - r * 0.95f), primary);
-    // Face (circle).
-    dl->AddCircleFilled(c, r * 0.65f, primary, 24);
-    // Snout (downward triangle).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.30f, c.y + r * 0.20f),
-                          ImVec2(c.x + r * 0.30f, c.y + r * 0.20f),
-                          ImVec2(c.x,             c.y + r * 0.90f), primary);
-    // Eyes — small accent dots.
-    dl->AddCircleFilled(ImVec2(c.x - r * 0.25f, c.y - r * 0.05f), r * 0.10f, accent, 8);
-    dl->AddCircleFilled(ImVec2(c.x + r * 0.25f, c.y - r * 0.05f), r * 0.10f, accent, 8);
-}
-
-void draw_eagle(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Spread-wing silhouette: a broad V with a center body.
-    // Left wing (triangle).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.95f, c.y - r * 0.10f),
-                          ImVec2(c.x,             c.y + r * 0.10f),
-                          ImVec2(c.x - r * 0.30f, c.y + r * 0.50f), primary);
-    // Right wing.
-    dl->AddTriangleFilled(ImVec2(c.x + r * 0.95f, c.y - r * 0.10f),
-                          ImVec2(c.x,             c.y + r * 0.10f),
-                          ImVec2(c.x + r * 0.30f, c.y + r * 0.50f), primary);
-    // Body (vertical quad).
-    ImVec2 b1(c.x - r * 0.15f, c.y - r * 0.30f);
-    ImVec2 b2(c.x + r * 0.15f, c.y - r * 0.30f);
-    ImVec2 b3(c.x + r * 0.10f, c.y + r * 0.70f);
-    ImVec2 b4(c.x - r * 0.10f, c.y + r * 0.70f);
-    dl->AddQuadFilled(b1, b2, b3, b4, primary);
-    // Head circle.
-    dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.50f), r * 0.20f, primary, 16);
-    // Accent beak.
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.05f, c.y - r * 0.40f),
-                          ImVec2(c.x + r * 0.05f, c.y - r * 0.40f),
-                          ImVec2(c.x,             c.y - r * 0.20f), accent);
-}
-
-void draw_phoenix(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Flame-bird: two wing-flame triangles sweeping up, with center body
-    // and a small head circle. Accent line down the body for plumage.
-    // Left wing (curling up).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.90f, c.y + r * 0.10f),
-                          ImVec2(c.x - r * 0.10f, c.y - r * 0.20f),
-                          ImVec2(c.x - r * 0.50f, c.y - r * 0.90f), primary);
-    // Right wing.
-    dl->AddTriangleFilled(ImVec2(c.x + r * 0.90f, c.y + r * 0.10f),
-                          ImVec2(c.x + r * 0.10f, c.y - r * 0.20f),
-                          ImVec2(c.x + r * 0.50f, c.y - r * 0.90f), primary);
-    // Body.
-    ImVec2 body[4] = {
-        ImVec2(c.x - r * 0.15f, c.y - r * 0.10f),
-        ImVec2(c.x + r * 0.15f, c.y - r * 0.10f),
-        ImVec2(c.x,             c.y + r * 0.90f),
-        ImVec2(c.x,             c.y + r * 0.90f),
-    };
-    dl->AddConvexPolyFilled(body, 4, primary);
-    // Head + accent plume.
-    dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.25f), r * 0.15f, primary, 14);
-    dl->AddLine(ImVec2(c.x, c.y - r * 0.10f),
-                ImVec2(c.x, c.y + r * 0.85f),
-                accent, std::max(1.0f, r * 0.08f));
-}
-
-void draw_dragon(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Serpentine S-shape: 3 stacked half-curves approximated as triangles.
-    // Top curl.
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.30f, c.y - r * 0.85f),
-                          ImVec2(c.x + r * 0.70f, c.y - r * 0.85f),
-                          ImVec2(c.x + r * 0.10f, c.y - r * 0.30f), primary);
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.30f, c.y - r * 0.85f),
-                          ImVec2(c.x - r * 0.60f, c.y - r * 0.30f),
-                          ImVec2(c.x + r * 0.10f, c.y - r * 0.30f), primary);
-    // Middle bar (the S-waist).
-    ImVec2 wb[4] = {
-        ImVec2(c.x - r * 0.50f, c.y - r * 0.20f),
-        ImVec2(c.x + r * 0.50f, c.y - r * 0.20f),
-        ImVec2(c.x + r * 0.50f, c.y + r * 0.20f),
-        ImVec2(c.x - r * 0.50f, c.y + r * 0.20f),
-    };
-    dl->AddConvexPolyFilled(wb, 4, primary);
-    // Bottom curl (mirror of top).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.70f, c.y + r * 0.85f),
-                          ImVec2(c.x + r * 0.30f, c.y + r * 0.85f),
-                          ImVec2(c.x - r * 0.10f, c.y + r * 0.30f), primary);
-    dl->AddTriangleFilled(ImVec2(c.x + r * 0.30f, c.y + r * 0.85f),
-                          ImVec2(c.x + r * 0.60f, c.y + r * 0.30f),
-                          ImVec2(c.x - r * 0.10f, c.y + r * 0.30f), primary);
-    // Accent eye dot.
-    dl->AddCircleFilled(ImVec2(c.x + r * 0.40f, c.y - r * 0.55f), r * 0.10f, accent, 10);
-}
-
-void draw_wave(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // 3 stacked horizontal sine-wave curves, approximated by polylines.
-    const int kSegments = 16;
-    for (int row = 0; row < 3; ++row) {
-        float y0 = c.y - r * 0.50f + row * (r * 0.50f);
-        ImVec2 pts[kSegments + 1];
-        for (int i = 0; i <= kSegments; ++i) {
-            float t = (float)i / (float)kSegments;
-            float x = c.x - r * 0.90f + t * (r * 1.80f);
-            float y = y0 + std::sin(t * kTau) * (r * 0.15f);
-            pts[i] = ImVec2(x, y);
+void frame_hex(ImDrawList* dl, ImVec2 c, float r,
+               ImU32 primary, ImU32 accent) {
+    drop_shadow(dl, c, r);
+    ImU32 rim  = shade(primary, 0.42f);
+    ImU32 fill = primary;
+    // Pointy-top hexagon.
+    auto build = [&](float scale, ImVec2 pts[6]) {
+        float sr = r * scale;
+        for (int i = 0; i < 6; ++i) {
+            float a = (kTau * i / 6.0f) - kPi / 2.0f;
+            pts[i] = polar(c, sr, a);
         }
-        ImU32 col = (row == 1) ? accent : primary;
-        dl->AddPolyline(pts, kSegments + 1, col, 0, std::max(1.0f, r * 0.16f));
-    }
-}
-
-void draw_mountain(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // 3 triangular peaks. Center taller, sides shorter and overlapping.
-    // Left peak.
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.95f, c.y + r * 0.85f),
-                          ImVec2(c.x - r * 0.15f, c.y + r * 0.85f),
-                          ImVec2(c.x - r * 0.55f, c.y - r * 0.20f), primary);
-    // Right peak.
-    dl->AddTriangleFilled(ImVec2(c.x + r * 0.15f, c.y + r * 0.85f),
-                          ImVec2(c.x + r * 0.95f, c.y + r * 0.85f),
-                          ImVec2(c.x + r * 0.55f, c.y - r * 0.20f), primary);
-    // Center peak (tallest, drawn last so its snowcap accent sits on top).
-    ImVec2 p1(c.x - r * 0.50f, c.y + r * 0.85f);
-    ImVec2 p2(c.x + r * 0.50f, c.y + r * 0.85f);
-    ImVec2 p3(c.x,             c.y - r * 0.85f);
-    dl->AddTriangleFilled(p1, p2, p3, primary);
-    // Snowcap (accent) at the tip of the center peak — small triangle.
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.15f, c.y - r * 0.55f),
-                          ImVec2(c.x + r * 0.15f, c.y - r * 0.55f),
-                          p3, accent);
-}
-
-void draw_sun(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Center disc + 8 short radial rays.
-    dl->AddCircleFilled(c, r * 0.45f, primary, 24);
-    for (int i = 0; i < 8; ++i) {
-        float a = (kTau * i / 8.0f);
-        ImVec2 inner = polar(c, r * 0.55f, a);
-        ImVec2 outer = polar(c, r * 0.92f, a);
-        dl->AddLine(inner, outer, accent, std::max(1.5f, r * 0.14f));
-    }
-}
-
-void draw_crosshair(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Sniper reticle: thin outer circle + cross lines + center dot.
-    dl->AddCircle(c, r * 0.85f, primary, 24, std::max(1.5f, r * 0.10f));
-    dl->AddCircle(c, r * 0.45f, primary, 18, std::max(1.0f, r * 0.06f));
-    dl->AddLine(ImVec2(c.x - r * 0.95f, c.y), ImVec2(c.x - r * 0.20f, c.y),
-                primary, std::max(1.0f, r * 0.10f));
-    dl->AddLine(ImVec2(c.x + r * 0.20f, c.y), ImVec2(c.x + r * 0.95f, c.y),
-                primary, std::max(1.0f, r * 0.10f));
-    dl->AddLine(ImVec2(c.x, c.y - r * 0.95f), ImVec2(c.x, c.y - r * 0.20f),
-                primary, std::max(1.0f, r * 0.10f));
-    dl->AddLine(ImVec2(c.x, c.y + r * 0.20f), ImVec2(c.x, c.y + r * 0.95f),
-                primary, std::max(1.0f, r * 0.10f));
-    // Center accent dot.
-    dl->AddCircleFilled(c, r * 0.12f, accent, 10);
-}
-
-void draw_sword(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Vertical sword: thin blade rect + crossguard + pommel.
-    // Blade.
-    ImVec2 b1(c.x - r * 0.10f, c.y - r * 0.90f);
-    ImVec2 b2(c.x + r * 0.10f, c.y - r * 0.90f);
-    ImVec2 b3(c.x + r * 0.10f, c.y + r * 0.40f);
-    ImVec2 b4(c.x - r * 0.10f, c.y + r * 0.40f);
-    dl->AddQuadFilled(b1, b2, b3, b4, primary);
-    // Crossguard.
-    ImVec2 g1(c.x - r * 0.60f, c.y + r * 0.35f);
-    ImVec2 g2(c.x + r * 0.60f, c.y + r * 0.35f);
-    ImVec2 g3(c.x + r * 0.60f, c.y + r * 0.55f);
-    ImVec2 g4(c.x - r * 0.60f, c.y + r * 0.55f);
-    dl->AddQuadFilled(g1, g2, g3, g4, accent);
-    // Grip + pommel.
-    ImVec2 h1(c.x - r * 0.08f, c.y + r * 0.55f);
-    ImVec2 h2(c.x + r * 0.08f, c.y + r * 0.55f);
-    ImVec2 h3(c.x + r * 0.08f, c.y + r * 0.80f);
-    ImVec2 h4(c.x - r * 0.08f, c.y + r * 0.80f);
-    dl->AddQuadFilled(h1, h2, h3, h4, accent);
-    dl->AddCircleFilled(ImVec2(c.x, c.y + r * 0.90f), r * 0.12f, accent, 12);
-}
-
-void draw_anchor(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Stylized anchor: ring at top + vertical shaft + crescent base.
-    // Top ring.
-    dl->AddCircle(ImVec2(c.x, c.y - r * 0.65f), r * 0.18f, primary, 16,
-                  std::max(1.5f, r * 0.12f));
-    // Shaft.
-    ImVec2 s1(c.x - r * 0.08f, c.y - r * 0.45f);
-    ImVec2 s2(c.x + r * 0.08f, c.y - r * 0.45f);
-    ImVec2 s3(c.x + r * 0.08f, c.y + r * 0.55f);
-    ImVec2 s4(c.x - r * 0.08f, c.y + r * 0.55f);
-    dl->AddQuadFilled(s1, s2, s3, s4, primary);
-    // Crossbar near the top of the shaft.
-    ImVec2 c1(c.x - r * 0.45f, c.y - r * 0.30f);
-    ImVec2 c2(c.x + r * 0.45f, c.y - r * 0.30f);
-    ImVec2 c3(c.x + r * 0.45f, c.y - r * 0.18f);
-    ImVec2 c4(c.x - r * 0.45f, c.y - r * 0.18f);
-    dl->AddQuadFilled(c1, c2, c3, c4, primary);
-    // Crescent base — approximated by 2 triangles flaring outward.
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.10f, c.y + r * 0.40f),
-                          ImVec2(c.x - r * 0.70f, c.y + r * 0.40f),
-                          ImVec2(c.x - r * 0.45f, c.y + r * 0.90f), primary);
-    dl->AddTriangleFilled(ImVec2(c.x + r * 0.10f, c.y + r * 0.40f),
-                          ImVec2(c.x + r * 0.70f, c.y + r * 0.40f),
-                          ImVec2(c.x + r * 0.45f, c.y + r * 0.90f), primary);
-    // Accent inner ring detail.
-    dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.65f), r * 0.08f, accent, 10);
-}
-
-void draw_flame(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Teardrop flame: a stretched triangle with a rounded bottom.
-    ImVec2 pts[6] = {
-        ImVec2(c.x,             c.y - r * 0.95f),
-        ImVec2(c.x + r * 0.45f, c.y - r * 0.30f),
-        ImVec2(c.x + r * 0.55f, c.y + r * 0.35f),
-        ImVec2(c.x + r * 0.20f, c.y + r * 0.85f),
-        ImVec2(c.x - r * 0.20f, c.y + r * 0.85f),
-        ImVec2(c.x - r * 0.55f, c.y + r * 0.35f),
     };
-    dl->AddConvexPolyFilled(pts, 6, primary);
-    // Inner accent flame (smaller, brighter).
-    ImVec2 pts2[6] = {
-        ImVec2(c.x,             c.y - r * 0.40f),
-        ImVec2(c.x + r * 0.22f, c.y - r * 0.10f),
-        ImVec2(c.x + r * 0.25f, c.y + r * 0.25f),
-        ImVec2(c.x + r * 0.10f, c.y + r * 0.55f),
-        ImVec2(c.x - r * 0.10f, c.y + r * 0.55f),
-        ImVec2(c.x - r * 0.25f, c.y + r * 0.25f),
-    };
-    dl->AddConvexPolyFilled(pts2, 6, accent);
-}
-
-void draw_skull(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Stylized skull: oval cranium + small rect jaw + 2 eye holes + nose.
-    // Cranium (large oval — approximate with circle).
-    dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.15f), r * 0.72f, primary, 28);
-    // Jaw — rectangle below.
-    ImVec2 j1(c.x - r * 0.45f, c.y + r * 0.40f);
-    ImVec2 j2(c.x + r * 0.45f, c.y + r * 0.40f);
-    ImVec2 j3(c.x + r * 0.35f, c.y + r * 0.85f);
-    ImVec2 j4(c.x - r * 0.35f, c.y + r * 0.85f);
-    dl->AddQuadFilled(j1, j2, j3, j4, primary);
-    // Eye holes (accent — dark).
-    dl->AddCircleFilled(ImVec2(c.x - r * 0.28f, c.y - r * 0.15f), r * 0.18f, accent, 14);
-    dl->AddCircleFilled(ImVec2(c.x + r * 0.28f, c.y - r * 0.15f), r * 0.18f, accent, 14);
-    // Nose triangle.
-    dl->AddTriangleFilled(ImVec2(c.x,             c.y + r * 0.05f),
-                          ImVec2(c.x - r * 0.10f, c.y + r * 0.30f),
-                          ImVec2(c.x + r * 0.10f, c.y + r * 0.30f), accent);
-}
-
-void draw_compass(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Compass rose: 4 long cardinal rays + 4 short intercardinal rays.
-    // Long rays — diamonds along N/S/E/W.
-    auto ray = [&](float angle, float length, ImU32 col) {
-        ImVec2 tip = polar(c, length, angle);
-        ImVec2 left  = polar(c, r * 0.15f, angle - kPi / 2.0f);
-        ImVec2 right = polar(c, r * 0.15f, angle + kPi / 2.0f);
-        dl->AddTriangleFilled(c, tip, left, col);
-        dl->AddTriangleFilled(c, tip, right, col);
-    };
-    for (int i = 0; i < 4; ++i) {
-        float a = (kTau * i / 4.0f) - kPi / 2.0f;  // N, E, S, W
-        ray(a, r * 0.95f, primary);
+    ImVec2 rim_pts[6];  build(0.97f, rim_pts);
+    ImVec2 fill_pts[6]; build(0.92f, fill_pts);
+    dl->AddConvexPolyFilled(rim_pts,  6, rim);
+    dl->AddConvexPolyFilled(fill_pts, 6, fill);
+    // Top highlight wedge.
+    ImVec2 hl[3] = {fill_pts[5], fill_pts[0], fill_pts[1]};
+    dl->AddTriangleFilled(hl[0], hl[1], hl[2], IM_COL32(255, 250, 235, 32));
+    // Soft inner-glow ring (30% accent) inset ~2px from the hairline border.
+    {
+        ImVec2 inner[6];
+        build(0.88f, inner);
+        dl->AddPolyline(inner, 6, with_alpha(accent, 0x4D),
+                        ImDrawFlags_Closed, 1.0f);
     }
-    for (int i = 0; i < 4; ++i) {
-        float a = (kTau * i / 4.0f) - kPi / 4.0f;  // NE, SE, SW, NW
-        ray(a, r * 0.55f, accent);
-    }
-    // Center hub.
-    dl->AddCircleFilled(c, r * 0.12f, accent, 12);
+    // Hairline accent border.
+    dl->AddPolyline(fill_pts, 6, accent, ImDrawFlags_Closed,
+                    std::max(1.4f, r * 0.045f));
 }
 
-void draw_tree(ImDrawList* dl, ImVec2 c, float r, ImU32 primary, ImU32 accent) {
-    // Pine tree — 3 stacked triangles + a trunk rect at the bottom.
-    // Top (smallest).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.40f, c.y - r * 0.20f),
-                          ImVec2(c.x + r * 0.40f, c.y - r * 0.20f),
-                          ImVec2(c.x,             c.y - r * 0.90f), primary);
-    // Middle.
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.60f, c.y + r * 0.15f),
-                          ImVec2(c.x + r * 0.60f, c.y + r * 0.15f),
-                          ImVec2(c.x,             c.y - r * 0.55f), primary);
-    // Bottom (largest).
-    dl->AddTriangleFilled(ImVec2(c.x - r * 0.80f, c.y + r * 0.55f),
-                          ImVec2(c.x + r * 0.80f, c.y + r * 0.55f),
-                          ImVec2(c.x,             c.y - r * 0.20f), primary);
-    // Trunk.
-    ImVec2 t1(c.x - r * 0.12f, c.y + r * 0.55f);
-    ImVec2 t2(c.x + r * 0.12f, c.y + r * 0.55f);
-    ImVec2 t3(c.x + r * 0.12f, c.y + r * 0.95f);
-    ImVec2 t4(c.x - r * 0.12f, c.y + r * 0.95f);
-    dl->AddQuadFilled(t1, t2, t3, t4, accent);
+void frame_circle(ImDrawList* dl, ImVec2 c, float r,
+                  ImU32 primary, ImU32 accent) {
+    drop_shadow(dl, c, r);
+    ImU32 rim  = shade(primary, 0.42f);
+    ImU32 fill = primary;
+    dl->AddCircleFilled(c, r * 0.97f, rim,  40);
+    dl->AddCircleFilled(c, r * 0.92f, fill, 40);
+    // Top highlight crescent.
+    dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.32f),
+                        r * 0.55f, IM_COL32(255, 250, 235, 28), 32);
+    dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.46f),
+                        r * 0.32f, IM_COL32(255, 250, 235, 36), 28);
+    // Soft inner-glow ring (30% accent) inset ~2px from the hairline border.
+    dl->AddCircle(c, r * 0.88f, with_alpha(accent, 0x4D), 40, 1.0f);
+    // Hairline accent border.
+    dl->AddCircle(c, r * 0.94f, accent, 40, std::max(1.4f, r * 0.05f));
+}
+
+void frame_diamond(ImDrawList* dl, ImVec2 c, float r,
+                   ImU32 primary, ImU32 accent) {
+    drop_shadow(dl, c, r);
+    ImU32 rim  = shade(primary, 0.42f);
+    ImU32 fill = primary;
+    auto build = [&](float scale, ImVec2 pts[4]) {
+        float sr = r * scale;
+        pts[0] = ImVec2(c.x,            c.y - sr * 0.98f);
+        pts[1] = ImVec2(c.x + sr * 0.90f, c.y);
+        pts[2] = ImVec2(c.x,            c.y + sr * 0.98f);
+        pts[3] = ImVec2(c.x - sr * 0.90f, c.y);
+    };
+    ImVec2 rim_pts[4];  build(1.00f, rim_pts);
+    ImVec2 fill_pts[4]; build(0.94f, fill_pts);
+    dl->AddConvexPolyFilled(rim_pts,  4, rim);
+    dl->AddConvexPolyFilled(fill_pts, 4, fill);
+    // Top quadrant highlight.
+    ImVec2 hl[3] = {
+        fill_pts[3], fill_pts[0], fill_pts[1],
+    };
+    dl->AddTriangleFilled(
+        ImVec2((hl[0].x + hl[1].x) * 0.5f, (hl[0].y + hl[1].y) * 0.5f),
+        fill_pts[0],
+        ImVec2((hl[1].x + hl[2].x) * 0.5f, (hl[1].y + hl[2].y) * 0.5f),
+        IM_COL32(255, 250, 235, 32));
+    // Soft inner-glow ring (30% accent) inset ~2px from the hairline border.
+    {
+        ImVec2 inner[4];
+        build(0.88f, inner);
+        dl->AddPolyline(inner, 4, with_alpha(accent, 0x4D),
+                        ImDrawFlags_Closed, 1.0f);
+    }
+    // Hairline accent border.
+    dl->AddPolyline(fill_pts, 4, accent, ImDrawFlags_Closed,
+                    std::max(1.4f, r * 0.045f));
+}
+
+void frame_banner(ImDrawList* dl, ImVec2 c, float r,
+                  ImU32 primary, ImU32 accent) {
+    drop_shadow(dl, c, r);
+    ImU32 rim  = shade(primary, 0.42f);
+    ImU32 fill = primary;
+    // Slightly wider-than-tall rectangle with chevron-cut bottom edge.
+    auto build = [&](float scale, ImVec2 pts[6]) {
+        float sr = r * scale;
+        pts[0] = ImVec2(c.x - sr * 0.95f, c.y - sr * 0.80f);
+        pts[1] = ImVec2(c.x + sr * 0.95f, c.y - sr * 0.80f);
+        pts[2] = ImVec2(c.x + sr * 0.95f, c.y + sr * 0.45f);
+        pts[3] = ImVec2(c.x + sr * 0.05f, c.y + sr * 0.95f);
+        pts[4] = ImVec2(c.x - sr * 0.05f, c.y + sr * 0.95f);
+        pts[5] = ImVec2(c.x - sr * 0.95f, c.y + sr * 0.45f);
+    };
+    ImVec2 rim_pts[6];  build(1.00f, rim_pts);
+    ImVec2 fill_pts[6]; build(0.95f, fill_pts);
+    dl->AddConvexPolyFilled(rim_pts,  6, rim);
+    dl->AddConvexPolyFilled(fill_pts, 6, fill);
+    // Top highlight band.
+    ImVec2 hl[4] = {
+        ImVec2(c.x - r * 0.85f, c.y - r * 0.70f),
+        ImVec2(c.x + r * 0.85f, c.y - r * 0.70f),
+        ImVec2(c.x + r * 0.85f, c.y - r * 0.30f),
+        ImVec2(c.x - r * 0.85f, c.y - r * 0.30f),
+    };
+    dl->AddConvexPolyFilled(hl, 4, IM_COL32(255, 250, 235, 28));
+    // Soft inner-glow ring (30% accent) inset ~2px from the hairline border.
+    {
+        ImVec2 inner[6];
+        build(0.89f, inner);
+        dl->AddPolyline(inner, 6, with_alpha(accent, 0x4D),
+                        ImDrawFlags_Closed, 1.0f);
+    }
+    // Hairline accent border.
+    dl->AddPolyline(fill_pts, 6, accent, ImDrawFlags_Closed,
+                    std::max(1.4f, r * 0.045f));
+}
+
+void draw_frame(ImDrawList* dl, ImVec2 c, float r,
+                int frame_idx, ImU32 primary, ImU32 accent) {
+    switch (frame_idx % 5) {
+        case 0: frame_shield (dl, c, r, primary, accent); break;
+        case 1: frame_hex    (dl, c, r, primary, accent); break;
+        case 2: frame_circle (dl, c, r, primary, accent); break;
+        case 3: frame_diamond(dl, c, r, primary, accent); break;
+        case 4: frame_banner (dl, c, r, primary, accent); break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Monogram — the team's TAG rendered as bold typography in the center.
+// Scales with radius and tag length so 1-3 char tags all read cleanly. Uses
+// the active ImGui font (assumed to be a strong sans-serif). Drop shadow
+// offset for depth.
+// ---------------------------------------------------------------------------
+
+void draw_monogram(ImDrawList* dl, ImVec2 c, float r,
+                   const char* tag, ImU32 fg) {
+    if (!tag || !*tag) return;
+    // Clamp the rendered tag length to 4 chars (defensive — make_team_tag
+    // returns 3, but god-mode editing or save-data drift could push higher).
+    char buf[5];
+    int  n = 0;
+    for (; n < 4 && tag[n]; ++n) buf[n] = tag[n];
+    buf[n] = 0;
+
+    // Defensive font fallback. ImGui::GetFont() should always return the
+    // active font once io.Fonts->Build() has run, but if a caller invokes
+    // this outside a frame (e.g. wizard preview mid-init), fall back to the
+    // first atlas font rather than silently rendering nothing.
+    ImFont* font = ImGui::GetFont();
+    if (!font) {
+        ImFontAtlas* atlas = ImGui::GetIO().Fonts;
+        if (atlas && atlas->Fonts.Size > 0) font = atlas->Fonts[0];
+    }
+    if (!font) return;
+
+    // Font size scales inversely with tag length so the monogram always
+    // fills ~62% of the frame width. Tight enough to read as a wordmark,
+    // loose enough that the frame still frames it.
+    float fs;
+    switch (n) {
+        case 1: fs = r * 1.20f; break;
+        case 2: fs = r * 0.90f; break;
+        case 3: fs = r * 0.70f; break;
+        default: fs = r * 0.58f; break;
+    }
+    // Cap font size to a sensible upper bound so the wizard's 120-px preview
+    // doesn't ask ImGui to rasterize a 130-px glyph (cache-thrashing).
+    fs = std::min(fs, 64.0f);
+    // Floor so the bracket-card 14-px logo doesn't render unreadable text.
+    fs = std::max(fs, 9.0f);
+
+    ImVec2 sz = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf);
+    ImVec2 pos(c.x - sz.x * 0.5f, c.y - sz.y * 0.5f);
+
+    // Drop shadow — vertical-dominant offset (light-from-above), low alpha,
+    // slight blue-leaning charcoal tint to match the deep-charcoal surface
+    // bg. A tiny 2% horizontal offset adds just enough lateral depth without
+    // reading as italic-skew.
+    ImU32 shadow = IM_COL32(0x05, 0x08, 0x10, 110);
+    dl->AddText(font, fs, ImVec2(pos.x + fs * 0.02f, pos.y + fs * 0.08f),
+                shadow, buf);
+    // Foreground tag.
+    dl->AddText(font, fs, pos, fg, buf);
+}
+
+// ---------------------------------------------------------------------------
+// Accent flourishes. One of four small decorative elements rendered on top
+// of the frame to give each team's badge a unique signature. Selected per-
+// team via `(shape_idx / 5) % 4` so a team's frame and accent are stable
+// across save/load.
+// ---------------------------------------------------------------------------
+
+void accent_top_stripe(ImDrawList* dl, ImVec2 c, float r, ImU32 accent) {
+    // Thin horizontal accent bar across the top inner quarter of the frame.
+    // Rounded ends read as a finished bar rather than a hard-cut sliver.
+    float y0 = c.y - r * 0.72f;
+    float y1 = c.y - r * 0.62f;
+    float x0 = c.x - r * 0.62f;
+    float x1 = c.x + r * 0.62f;
+    dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), accent, 1.5f);
+}
+
+void accent_corner_dots(ImDrawList* dl, ImVec2 c, float r, ImU32 accent) {
+    // 4 small dots at the inner-frame "corners" (offset toward the center
+    // a bit so they sit inside any of the 5 frame shapes). Bumped dot
+    // radius so the dots still read at 24-px standings thumbnails.
+    float off = r * 0.66f;
+    float dr  = std::max(1.5f, r * 0.10f);
+    dl->AddCircleFilled(ImVec2(c.x - off, c.y - off), dr, accent, 12);
+    dl->AddCircleFilled(ImVec2(c.x + off, c.y - off), dr, accent, 12);
+    dl->AddCircleFilled(ImVec2(c.x - off, c.y + off), dr, accent, 12);
+    dl->AddCircleFilled(ImVec2(c.x + off, c.y + off), dr, accent, 12);
+}
+
+void accent_bottom_chevron(ImDrawList* dl, ImVec2 c, float r, ImU32 accent) {
+    // V-shape under the monogram.
+    float yc = c.y + r * 0.55f;
+    float xL = c.x - r * 0.42f;
+    float xR = c.x + r * 0.42f;
+    float xM = c.x;
+    float yT = yc - r * 0.10f;
+    float yB = yc + r * 0.10f;
+    auto thick = std::max(1.8f, r * 0.08f);
+    dl->AddLine(ImVec2(xL, yT), ImVec2(xM, yB), accent, thick);
+    dl->AddLine(ImVec2(xM, yB), ImVec2(xR, yT), accent, thick);
+}
+
+void accent_inner_outline(ImDrawList* dl, ImVec2 c, float r,
+                          int frame_idx, ImU32 accent) {
+    // A second smaller outline of the same frame shape, painted in accent.
+    // Gives a "framed wordmark" feel.
+    auto thick = std::max(1.4f, r * 0.045f);
+    switch (frame_idx % 5) {
+        case 0: {  // shield
+            float sr = r * 0.72f;
+            ImVec2 pts[7] = {
+                ImVec2(c.x - sr * 0.88f, c.y - sr * 0.78f),
+                ImVec2(c.x + sr * 0.88f, c.y - sr * 0.78f),
+                ImVec2(c.x + sr * 0.88f, c.y - sr * 0.10f),
+                ImVec2(c.x + sr * 0.72f, c.y + sr * 0.55f),
+                ImVec2(c.x,              c.y + sr * 0.98f),
+                ImVec2(c.x - sr * 0.72f, c.y + sr * 0.55f),
+                ImVec2(c.x - sr * 0.88f, c.y - sr * 0.10f),
+            };
+            dl->AddPolyline(pts, 7, accent, ImDrawFlags_Closed, thick);
+            break;
+        }
+        case 1: {  // hex
+            ImVec2 pts[6];
+            for (int i = 0; i < 6; ++i) {
+                float a = (kTau * i / 6.0f) - kPi / 2.0f;
+                pts[i] = polar(c, r * 0.70f, a);
+            }
+            dl->AddPolyline(pts, 6, accent, ImDrawFlags_Closed, thick);
+            break;
+        }
+        case 2: {  // circle
+            dl->AddCircle(c, r * 0.72f, accent, 36, thick);
+            break;
+        }
+        case 3: {  // diamond
+            ImVec2 pts[4] = {
+                ImVec2(c.x,            c.y - r * 0.72f),
+                ImVec2(c.x + r * 0.66f, c.y),
+                ImVec2(c.x,            c.y + r * 0.72f),
+                ImVec2(c.x - r * 0.66f, c.y),
+            };
+            dl->AddPolyline(pts, 4, accent, ImDrawFlags_Closed, thick);
+            break;
+        }
+        case 4: {  // banner
+            ImVec2 pts[6] = {
+                ImVec2(c.x - r * 0.72f, c.y - r * 0.62f),
+                ImVec2(c.x + r * 0.72f, c.y - r * 0.62f),
+                ImVec2(c.x + r * 0.72f, c.y + r * 0.34f),
+                ImVec2(c.x + r * 0.04f, c.y + r * 0.72f),
+                ImVec2(c.x - r * 0.04f, c.y + r * 0.72f),
+                ImVec2(c.x - r * 0.72f, c.y + r * 0.34f),
+            };
+            dl->AddPolyline(pts, 6, accent, ImDrawFlags_Closed, thick);
+            break;
+        }
+    }
+}
+
+void draw_accent(ImDrawList* dl, ImVec2 c, float r,
+                 int accent_idx, int frame_idx, ImU32 accent) {
+    switch (accent_idx % 4) {
+        case 0: accent_top_stripe    (dl, c, r, accent); break;
+        case 1: accent_corner_dots   (dl, c, r, accent); break;
+        case 2: accent_bottom_chevron(dl, c, r, accent); break;
+        case 3: accent_inner_outline (dl, c, r, frame_idx, accent); break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tag derivation fallback. If a caller doesn't pass a tag (legacy code path
+// or wizard preview before world init), derive a 1-3 char monogram from the
+// shape index alone so the badge still has a wordmark to render. Uses a
+// curated brand-modern set so it never produces awkward letter combos.
+// ---------------------------------------------------------------------------
+
+const char* default_monogram_for_shape(std::uint8_t shape_idx) {
+    // 30 entries — one per shape — so callers that pass only shape_idx still
+    // see a stable per-shape monogram. These read like generic VCT-style
+    // org abbreviations rather than placeholder text.
+    static const char* const kDefaults[30] = {
+        "VLR", "APX", "NRG", "BST", "FOX", "ARC", "ZEN", "RIX",
+        "OBS", "ECL", "STX", "TMP", "OPS", "DRX", "FNX", "JET",
+        "NOX", "VYR", "EMR", "FRY", "PRT", "ELM", "FNG", "TRI",
+        "XSW", "GRX", "TLN", "EYE", "CBR", "SUN"
+    };
+    return kDefaults[shape_idx % 30];
 }
 
 }  // namespace
 
 void draw_team_logo(ImDrawList* dl, ImVec2 center, float radius,
                     std::uint8_t shape_idx,
-                    ImU32 color_primary, ImU32 color_accent) {
+                    ImU32 color_primary, ImU32 color_accent,
+                    const char* tag) {
     if (dl == nullptr || radius <= 0.0f) return;
 
-    // Defensive: anything out-of-range falls back to a Shield. Keeps logo
-    // rendering safe across save-file mismatches or enum drift.
-    if (shape_idx >= kLogoShapeCount) {
-        draw_shield(dl, center, radius, color_primary, color_accent);
-        return;
-    }
+    // 1. Frame backplate (depth stack: shadow → rim → fill → highlight → border).
+    //    Five distinct frame shapes, selected per-team via shape_idx % 5.
+    int frame_idx = static_cast<int>(shape_idx) % 5;
+    draw_frame(dl, center, radius, frame_idx, color_primary, color_accent);
 
-    switch (shape_idx) {
-        case  0: draw_shield   (dl, center, radius, color_primary, color_accent); break;
-        case  1: draw_hexagon  (dl, center, radius, color_primary, color_accent); break;
-        case  2: draw_diamond_logo(dl, center, radius, color_primary, color_accent); break;
-        case  3: draw_circle_logo (dl, center, radius, color_primary, color_accent); break;
-        case  4: draw_triangle_logo(dl, center, radius, color_primary, color_accent); break;
-        case  5: draw_star     (dl, center, radius, color_primary, color_accent); break;
-        case  6: draw_lightning(dl, center, radius, color_primary, color_accent); break;
-        case  7: draw_crown    (dl, center, radius, color_primary, color_accent); break;
-        case  8: draw_wolf     (dl, center, radius, color_primary, color_accent); break;
-        case  9: draw_eagle    (dl, center, radius, color_primary, color_accent); break;
-        case 10: draw_phoenix  (dl, center, radius, color_primary, color_accent); break;
-        case 11: draw_dragon   (dl, center, radius, color_primary, color_accent); break;
-        case 12: draw_wave     (dl, center, radius, color_primary, color_accent); break;
-        case 13: draw_mountain (dl, center, radius, color_primary, color_accent); break;
-        case 14: draw_sun      (dl, center, radius, color_primary, color_accent); break;
-        case 15: draw_crosshair(dl, center, radius, color_primary, color_accent); break;
-        case 16: draw_sword    (dl, center, radius, color_primary, color_accent); break;
-        case 17: draw_anchor   (dl, center, radius, color_primary, color_accent); break;
-        case 18: draw_flame    (dl, center, radius, color_primary, color_accent); break;
-        case 19: draw_skull    (dl, center, radius, color_primary, color_accent); break;
-        case 20: draw_compass  (dl, center, radius, color_primary, color_accent); break;
-        case 21: draw_tree     (dl, center, radius, color_primary, color_accent); break;
-        default: draw_shield   (dl, center, radius, color_primary, color_accent); break;
-    }
+    // 2. Monogram — bold typographic tag, centered, drop-shadowed. Color
+    //    auto-picked for contrast against the primary backplate. If the
+    //    caller passed an empty tag (legacy emblem-only paths), fall back
+    //    to a stable per-shape default so the badge still reads as a brand.
+    const char* monogram = (tag && *tag) ? tag
+                                          : default_monogram_for_shape(shape_idx);
+    ImU32 mono_col = pick_monogram_color(color_primary, color_accent);
+    draw_monogram(dl, center, radius, monogram, mono_col);
+
+    // 3. Accent flourish — one of four (top stripe / corner dots / bottom
+    //    chevron / inner outline). Selected per-team via (shape_idx / 5) %
+    //    4 so a team's frame + accent are jointly deterministic.
+    int accent_idx = (static_cast<int>(shape_idx) / 5) % 4;
+    draw_accent(dl, center, radius, accent_idx, frame_idx, color_accent);
 }
 
 }  // namespace vlr

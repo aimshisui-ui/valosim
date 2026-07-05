@@ -33,7 +33,16 @@ struct GroupStanding {
 // incrementally as each Series resolves (see aggregate_player_stats()).
 // Counting fields are SUMS; rating/adr/hs_pct/kast are maps-weighted means.
 struct TournamentPlayerStat {
-    Player* player = nullptr;          // never null in the returned vector
+    // `player` is an IDENTITY HANDLE only — used by the UI click path to find
+    // the matching shared_ptr in live rosters. NEVER dereference it; the
+    // Player object may have been released or retired since accumulation,
+    // and even when alive the raw pointer here can outlive the world reset.
+    // For any display data (name, IGL flag, signature agent), read the
+    // snapshot fields below, which are frozen at accumulation time.
+    Player* player = nullptr;
+    std::string display_name;          // gamertag at accumulation time
+    bool        is_igl = false;        // IGL flag at accumulation time
+    std::string signature_agent;       // signature agent at accumulation time (may be "")
     std::string team_name;             // team they played for in this event
     int    maps         = 0;
     int    rounds       = 0;
@@ -154,6 +163,19 @@ public:
     // award_event_titles is the authoritative one.
     bool titles_already_pinned() const noexcept { return pinned_titles_already_; }
 
+    // Title gating (see awards_title_). GameManager sets this false for the
+    // 2nd/3rd regional playoffs so only the first regional of the year is a
+    // "Regional Champs". Default true (Masters/Champions/first-regional).
+    void set_awards_title(bool v) noexcept { awards_title_ = v; }
+    bool awards_title() const noexcept { return awards_title_; }
+
+    // One-shot prize-money fuse. GameManager pays this event's purse exactly
+    // once — whichever of the natural finished block (play_tournament_round)
+    // or force_finish_stale_tournaments sees the champion first flips this to
+    // true; the other path then no-ops. Public by design: GameManager owns
+    // payout policy, the Tournament only carries the paid/unpaid state.
+    bool prize_paid = false;
+
     // Debug-only bracket sanity walker. Returns true if the bracket state
     // looks internally consistent (alive pools + history + GF state agree),
     // false otherwise — in which case out_err is filled with a 1-line
@@ -227,6 +249,14 @@ private:
     // Belt-and-suspenders against double-firing from any code path
     // (force_finish_stale_tournaments + natural Done transition).
     bool                                          pinned_titles_already_ = false;
+
+    // Whether this bracket crowns a TITLED champion. True for Masters, Champions
+    // and the FIRST regional split of the year. False for the 2nd/3rd regional
+    // playoffs — they still seed Masters/Champions and crown a bracket winner,
+    // but mint NO "Regional Champ" award and record NO team trophy (only the
+    // first regional of the year is a true "Regional Champs"). Set by GameManager
+    // at tournament creation.
+    bool                                          awards_title_ = true;
 
     // Snapshotted recipient list at pin time — exposed via
     // winning_roster_snapshot() for audit / UI consumers.

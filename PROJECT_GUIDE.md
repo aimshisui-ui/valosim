@@ -1,6 +1,8 @@
 # VLR Manager / Valosim — Project Guide for Future Claude
 
 > **Read this FIRST before editing.** Captures current architecture + every behavioral decision the user has explicitly asked for. If you're tempted to "improve" something documented here, check with the user — most rules below are deliberate, several were learned the hard way.
+>
+> **What this file is:** a pure reference manual — current systems, magic numbers, pitfalls, file layout. **What this file is NOT:** a history of changes. For dated history of when things were added or changed, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -29,7 +31,7 @@ C:\Users\fulls\Desktop\Valosim\
    ├─ build.bat                       MSVC build script (vcvars64 + cl + link)
    ├─ build\                          Output objs + 4 exes
    │   ├─ vlrgui.exe                  THE GAME (ImGui DX11, ~2.1 MB)
-   │   ├─ vlrtest.exe                 17 smoke tests
+   │   ├─ vlrtest.exe                 19 smoke tests
    │   ├─ vlrmanager.exe              Console fallback
    │   └─ Play.exe                    Launcher binary
    ├─ include\                        Public headers
@@ -86,7 +88,7 @@ Common  Country  Names+NamesData  Agent  Coach           ← primitives + data
                        │
                      Goat                                  ← derived rankings
                        │
-                gui_main.cpp                               ← ImGui UI (single TU, ~6300 lines)
+                gui_main.cpp                               ← ImGui UI (single TU, ~12.5k lines)
 ```
 
 `Match.h` forward-declares `RecordedMatch` which lives in `Player.h` to break the Match → Team → Player header cycle.
@@ -195,6 +197,12 @@ Held by `shared_ptr<Player>` everywhere — no raw new/delete.
 - `dedupe_awards()` — runs at year-end inside `save_history_and_progress`. Removes duplicate award strings.
 - `award_count_by_prefix(prefix)` / `has_award_with_prefix(prefix)` — robust prefix-anchored queries.
 - `ever_won_international()` / `ever_won_role_award()` / `ever_won_mvp()` — HoF criterion accessors.
+
+**Form / risk accessors (UI ↔ engine bridge):**
+- `is_form_at_risk()` — true if `season_matches >= 4 AND season_rating < 0.95`. Single source of truth for the "AT RISK" form chip on the Manager tracker; AI mid-season replacement logic should also gate on this so engine + UI cannot diverge. Was previously inlined in UI as a hardcoded threshold — never reintroduce.
+
+**`TournamentPlayerStat` lifetime snapshot (2026-06-11):**
+- `Tournament::aggregate_player_stats()` returns rows that hold a raw `Player*` (identity handle) PLUS snapshot fields `display_name`, `is_igl`, `signature_agent` captured at accumulation time inside `absorb_series_participants`. UI MUST read display data from the snapshots — NEVER dereference `r.player`. The raw pointer is only safe to use as a pointer-identity key for click-resolver lookups (which now also fall back to gamertag match across both `leagues` and `solo_qs` ladders so retired/cut participants still open). Was the root cause of the Tournament → Player Stats hover crash. → CHANGELOG 2026-06-11.
 
 ### 4.4.1 Position system (1D + 1C + 1S + 1I + 1 flexible 5th + IGL/Flex overlays)
 
@@ -417,7 +425,7 @@ Best-of 1/2/3/5. **`is_over()`** special-cases BO2: returns true after exactly 2
 
 **`aggregate_player_stats()` (added 2026-05-15):** returns `vector<TournamentPlayerStat>` (player, team_name, maps, rounds, k/d/a, fk/fd, clutches, rating, adr, hs_pct, kast, top_agent). Incrementally accumulated inside `absorb_series_participants` keyed off each `RecordedMatch*` via a `stat_absorbed_recs_` dedup fuse (prevents the natural-Done + force-finish double-count). Counting stats summed; rating/adr/hs/kast are maps-weighted means. Accumulator reset in the Tournament ctor only (survives group→playoff `start_bracket` re-entry). Powers the Tournament "Player Stats" sub-tab.
 
-**Phantom-round bug FIXED (2026 May):** old `schedule_next_bracket_round` merged UB-Final-loser-drops into `lb_alive_` even when sizes mismatched, leaving leftover LB teams that played a phantom "LB Final" round before the real LB Final. New rule: merge ONLY when `lb_alive_.size() == ub_just_dropped_.size()`; mismatch → run pure LB round first and hold drops in `ub_just_dropped_` for next merge attempt. `is_lb_final` flag fires only when `ub_alive_.size() == 1` AND LB is collapsing to its final 2.
+**Phantom-round merge rule:** `schedule_next_bracket_round` merges UB-Final-loser-drops into `lb_alive_` ONLY when `lb_alive_.size() == ub_just_dropped_.size()`. On mismatch → run a pure LB round first and hold drops in `ub_just_dropped_` for the next merge attempt. `is_lb_final` fires only when `ub_alive_.size() == 1` AND LB is collapsing to its final 2. This avoids the phantom "LB Final" round that an earlier unconditional merge produced.
 
 **8-team structure (post-fix, locked by smoke 15 + 18):**
 - Upper bracket: 3 rounds (R1=4 matches, SF=2, Final=1) — all BO3
@@ -614,51 +622,11 @@ Dedup: `news_emitted_keys_` (cleared at year rollover). State tracking: `consecu
 
 ---
 
-## 5. UI (`gui_main.cpp`)
+### 4.17 Belief-driven AI + temporal coherence + economy
 
-Single TU, ~8100 lines (was ~6300 pre-Phase-1). ImGui + Win32 + DX11.
+> Cross-cutting reference section covering the intelligence layer that sits on top of Player / Team / GameManager: organizational memory, strategy inertia, championship windows, chemistry graph, transparent negotiation, deep AI re-sign loop, financial bands. The dated history of when these were introduced lives in [CHANGELOG.md](CHANGELOG.md).
 
-### 5.1 Fonts
-`g_font_body` (Segoe UI 16), `g_font_small` (13), `g_font_h2` (Semibold 22), `g_font_h1` (Black 30), `g_font_kpi` (Black 38), `g_font_mono` (Consolas 15).
-
-### 5.2 Color palette + design system (premium dark, redesigned 2026-05-15)
-
-**Base palette** (constant NAMES kept, values retuned so all screens inherit):
-```cpp
-kVlrNavy/kBgBase  #0F1117  deep charcoal window bg
-kBgDeep           #0B0D12  deepest (gutters / headers)
-kSurface          #171A24  card bg
-kSurfaceAlt       #1C202C  alt row / hover
-kSurfaceHi        #242938  raised / selected
-kBorder           #2A2F3D  hairline border
-kVlrText          #E9ECF1  near-white text
-kVlrSub           #8B93A3  muted secondary text
-kTextFaint        #5E6674  captions / labels
-kAccent  (kVlrBlue) #00D4FF electric blue — PRIMARY accent
-kAccent2          #7B5EFF  purple — secondary accent
-kVlrGold          #FFD700  prestige / trophies
-kVlrGreen         #3FD17A  success
-kVlrRed           #FF4655  VLR brand red (kept)
-```
-Role colors unchanged (muted brick/indigo/forest/steel/amber + gold IGL) — deliberate prior user decision, still wired through `role_color`, `position_color`, scoreboard agent tinting, `RoleBadge/PositionBadge/IglBadge/FlexBadge`.
-
-**`ApplyVlrTheme`** — premium rounding (window 10, frame 8), generous padding (window 22×20, frame 13×8, cell 12×7), accent-driven interaction states (buttons/sliders/checkmarks/scrollbars use `kAccent`), transparent tabs/childbg, subtle white-alpha row striping.
-
-**Design-system helpers** (defined ~gui_main.cpp:420-560 — compose ALL new UI from these):
-- `BeginCard(id,bg,pad,rounding)/EndCard()` — auto-height rounded bordered card
-- `BeginCardSized(id,size,...)/EndCardSized()` — fixed-size card
-- `Pill(text,bg,fg=0,extra_pad)` / `PillOutline(text,line,fg)` — rounded chips, auto-contrast text
-- `SectionHeader(title,subtitle,accent)` — accent bar + H2 + dim subtitle
-- `StatTile(label,value,accent,size,sub)` — KPI tile with accent edge
-- `MutedText(fmt,...)` / `VSpace(h)` / `ThinDivider(pad_y)` / `brightish(ImU32)`
-
-All screens were restyled 2026-05-15 to use these (cards, KPI strips, pill badges, section headers, striped tables, broadcast-style score banner/scoreboard, sharpened VCT bracket). Engine/data/logic untouched — purely the visual layer.
-
-### Belief-driven AI + temporal coherence + economy overhaul (2026-05-15 → 2026-05-28)
-
-**The biggest single block of engine work in the project's history.** Turned the optimizer-AI into a brain with memory, philosophy, timeline awareness, chemistry, and explainable negotiation. Plus a financial rebalance making the economy actually constrain decisions.
-
-#### Phase A — Belief Foundation (Team + Player)
+#### Organizational memory (Team)
 
 **`Team::OrgMemory`** — 6 rolling [-100, +100] metrics evolved at year-end:
 - `rookie_success` — youth picks panned out? Drives snake-draft scoring (+25 if ≥30, -15 if ≤-30)
@@ -682,7 +650,7 @@ Wired into:
 - Year-end re-sign loop (desire_accepts gate)
 - `auto_fill::fill_one` (skips candidates whose desire_mult × cost > 40% budget; skips if desire_accepts==false)
 
-#### Phase B — Temporal Coherence + Chemistry
+#### Championship windows + chemistry (Team)
 
 **`Team::TeamWindow`** enum (Opening/Open/Closing/Closed) computed yearly via `compute_team_window` from `avg_age + avg_potential + avg_ovr + avg_contract_years_left`. Recomputed in `run_end_of_year` between `update_org_memory` and `commit_strategy_with_inertia`. Drives mid-season `cut_chance × 1.40` for Closing (urgency), `× 0.70` for Opening (patient dev). Import appetite +0.05 for Closing, −0.03 for Opening.
 
@@ -694,19 +662,19 @@ Wired into:
 
 **UI surfaces:** Team Profile WINDOW pill (color-coded Opening green / Open accent / Closing gold / Closed red) + behavioral one-liner + ROSTER CHEMISTRY card (top-5 duos with signed values, ±2 horizontal bars). Dashboard WINDOW StatTile in KPI strip. Player Profile "Strong duo: ↔ X (+1.42)" line.
 
-#### Re-sign UI Flow + Deep AI Re-sign + Market Competition
+#### Re-sign Flow + Deep AI Re-sign + Market Competition
 
 **`Player::ResignOffer`** — what the player would ask for if approached: `{amount_k, years, willingness 0..1, min_acceptable_k, max_acceptable_years, explainer}`.
 
-**`Player::ResignBreakdown`** (negotiation overhaul) — per-factor scoring breakdown:
-- `base_score=50, salary_mod` (monotonic in offer, ±40), `prestige_mod` (±12), `contender_mod` (window/strategy/roster ovr; RingChaser doubles, Competitor checks raw ovr), `loyalty_mod` (Loyal+same_team +15, +3 current-team tenure), `years_mod` (length vs preference), `desire_mod` (archetype hard gates flat −50, Greedy/Mercenary −25/−30, mood floor −40)
+**`Player::ResignBreakdown`** — per-factor scoring breakdown returned to UI and consumed by the engine acceptance check:
+- `base_score=50, salary_mod` (monotonic in offer, capped ±55), `prestige_mod` (±14), `contender_mod` (window/strategy/roster ovr; RingChaser doubles, Competitor checks raw ovr), `loyalty_mod` (Loyal+same_team +22, +5 current-team tenure, +2/season ramp cap +10), `years_mod` (length vs preference), `desire_mod` (archetype gates −22..−25, Greedy/Mercenary −15/−18, mood floor −22, role-fit penalty −6..−45 by verdict band)
 - `total` clamped [0, 100], `will_accept` = `total >= 55` (`kResignAcceptThreshold`)
 - `verdict` ∈ {INSULTING (<35), WEAK (35-54), FAIR (55-69), STRONG (70-84), OVERPAY (≥85)}
 - `labels` for UI display, `reject_reason` one-liner
 
 **SINGLE SOURCE OF TRUTH** — `Player::accepts_resign_offer(amount, years, team)` is now literally `return evaluate_resign_offer(...).will_accept`. UI pill physically cannot disagree with engine decision. `evaluate_resign_offer` uses `gen_contract(randomize=false)` for deterministic ask reference — no per-frame RNG jitter.
 
-**`refuses_to_negotiate` semantics FIXED.** Old: `(offer × mood > 100)` — higher offer INCREASED refusal odds (the inverted bug). New: `offer < (30 + 70·mood)` — mood inflates the FLOOR, higher offer monotonically REDUCES refusal. Smoke #13 updated.
+**`refuses_to_negotiate`** — mood-inflated dignity floor: `offer < (30 + 70·mood)` returns true. Mood inflates the floor; higher offer monotonically reduces refusal. Smoke #13 pins the semantics.
 
 **Deep year-end re-sign loop** — for every team's expiring players (`years_left <= 1`):
 1. Player asks via `propose_resign_offer`
@@ -714,31 +682,23 @@ Wired into:
 3. Counter-offer: stars (ovr≥80) get full ask, mids get 90%, low get `min_acceptable_k`
 4. Counter years from `decide_contract_years` (multi-factor)
 5. Player evaluates via `accepts_resign_offer`
-6. On accept: `Team::resign_player(p, years, amount, year)` (in-place mutation, no release+sign)
+6. On accept: `Team::resign_player(p, years, amount, year + 1)` (in-place mutation, no release+sign). **`year + 1`** because this loop runs at year-end inside `run_end_of_year` BEFORE `year += 1` — the new contract starts in the upcoming season, not the just-played one.
 7. On reject: walk → market competition
 
-**`Team::resign_player(p, years, amount, year)`** — in-place contract rewrite without release+sign (preserves chemistry, no IGL/Flex re-enforce needed). Debits budget.
+**`Team::resign_player(p, years, amount, year)`** — in-place contract rewrite without release+sign (preserves chemistry, no IGL/Flex re-enforce needed). Debits budget. 5-arg overload also stamps `contract_role`.
 
 **`Team::market_value_estimate(p)`** — wraps `gen_contract(0, false, false, this)` for UI display.
 
-**Market competition for walked stars** — when player rejects re-sign AND `ovr ≥ 75`, find up to 3 same-region rival teams with positional need + budget ≥ market_value × 1.1, ranked by appetite + budget/4M + prestige/200. Each bids `gen_contract(year, randomize=true, false, &them)`. Player picks highest `willingness × amount` that clears `min_acceptable_k`. Bid years from each team's `decide_contract_years` (different teams offer different lengths same player). "X poaches Y from Z" news. **USER TEAM EXCLUDED from bidder pool** — won't auto-sign random FAs onto your roster.
+**Market competition for walked stars** — when player rejects re-sign AND `ovr ≥ 75`, find up to 3 same-region rival teams with positional need + budget ≥ market_value × 1.1, ranked by appetite + budget/4M + prestige/200. Each bids `gen_contract(year, randomize=true, false, &them)`. Player picks highest `willingness × amount` that clears `min_acceptable_k`. Bid years from each team's `decide_contract_years` (different teams offer different lengths same player). Signs at `year + 1` so contracts start the upcoming season. "X poaches Y from Z" news. **USER TEAM EXCLUDED from bidder pool** — won't auto-sign random FAs onto your roster.
 
 **`Team::ai_full_offseason_pass(fa_pool, year, log)`** — 5-stage deep GM pass:
 1. Header log (strategy/window/budget/roster snapshot)
 2. Smart cuts: expired contracts + underperformers (threshold ±0.05 by stability_culture) + chemistry retention for cores (≥+2.0 sum)
-3. Per-starter value assessment + targeted upgrade scan — `starter_value = ovr + age_curve + 8·avg_rating`. For each non-protected starter, scan same-role FAs for upgrades (delta ≥ +4 OVR), affordability (cost ≤ 40% budget), `accepts_resign_offer` check. Cut-and-replace with full log. Max 2 upgrades/pass
+3. Per-starter value assessment + targeted upgrade scan — `starter_value = ovr + age_curve + 8·avg_rating`. For each non-protected starter, scan same-role FAs for upgrades (delta ≥ +4 OVR), affordability (cost ≤ 40% budget), `accepts_resign_offer` check. Cut-and-replace with full log. Max **1 upgrade per pass**.
 4. Cascade-fill backstop for any vacancies via `auto_fill_roster`
-5. Bench depth (slots 6-7) if budget ≥ $200K and roster at 5
+5. Bench depth (single slot, max roster 6) if budget ≥ $400K AND no positional duplicates at that role.
 
-Every move logged: "UPGRADE: Mach (Controller 57 OVR) → Vortex (74 OVR, +12.4 value)". Wired for ALL non-user teams in `run_end_of_year`. User team's OFFSEASON-end fallback (when roster < 5) calls it too.
-
-#### Re-sign UI (gui_main.cpp)
-
-- "Re-sign" button on roster rows when `years_left ≤ 1` (next to Release)
-- Negotiation modal: cached offer + market value (no frame jitter), two-column LEFT (player's ask, willingness bar, explainer, min/max) RIGHT (market value, team budget, year/salary sliders, transparent breakdown showing every factor's contribution, will-accept pill, reject reason)
-- Three actions: Send Offer (commits via resign_player) / Match Their Ask (quick-fill) / Walk Away
-- Contract status pills on roster rows: gold "FINAL YEAR" (yl=1), dim "Expiring soon" (yl=2)
-- Dashboard hint pill "N players expiring" if user has final-year contracts
+Every move logged: `"UPGRADE: Mach (Controller 57 OVR) → Vortex (74 OVR, +12.4 value)"`. Wired for all non-user teams in `run_end_of_year` (called with `year + 1`). User team's OFFSEASON-end fallback (when roster < 5) calls it too, with the already-incremented OFFSEASON `year`.
 
 #### Async Sim Worker — Continue button non-blocking
 
@@ -753,7 +713,7 @@ Engine work moved off the UI thread. `Continue/Skip-to-next-match/Skip-to-Playof
 - All UI display sites switched from `contract_years` to `years_left(s.gm.year)`
 - `ai_manage_roster` signature: `(fa_pool, current_year)` so it can derive years correctly
 
-**Plumbing fix:** `auto_fill_roster` + `scout_top_fas` now also take `current_year` parameter. Previously the inner `sign_player(best, rng().irange(1,3))` defaulted `current_year=0` → exp_year stayed at the Player ctor's baseline (0-3) → roster rows showed "exp 0" / "exp 1". Threaded year through every callsite.
+**Plumbing:** `auto_fill_roster` + `scout_top_fas` take a `current_year` parameter and thread it through every callsite. Callers in `run_end_of_year` (re-sign loop, market poach, `ai_full_offseason_pass`) pass `year + 1` because they run BEFORE the `year += 1` step at the bottom of the function — new contracts there are for the upcoming season, not the just-played one. Mid-season replacement signings and user OFFSEASON paths pass the active year directly.
 
 #### `Team::decide_contract_years(player, current_year)` — SINGLE source of contract length reasoning
 
@@ -768,6 +728,14 @@ Replaces every `rng().irange(1, 3)` and `c.exp_year - year + 1` callsite. Multi-
 8. Clamp [1, 4]; cap at player's `max_acceptable_years`
 
 Used by: snake draft, auto_fill, scout_top_fas, mid-season replacements, year-end re-sign counter, market competition (different teams offer different lengths for same player!), `ai_full_offseason_pass` (upgrade + bench), USER's Transfer Market Sign button.
+
+#### Role lock + role-fit evaluator
+
+- **`Player::contract_role`** — field stamped at every signing path (`sign_player` + `resign_player` both have Role-aware overloads). `Role::Count` means "use natural" (delegates to `primary_role`). Lets the UI show "hired as X" and the negotiation evaluator apply role-fit penalties consistently.
+- **`Player::role_fit_score(Role)`** — pure 0..1 function. Weighted attribute composites per role (Duelist: Aim+Headshot+Entry+Aggro+Movement; Initiator: Utility+Comm+GS+Intel+MidRound; Controller: Intel+Decision+Comm+MidRound+GS; Sentinel: Pos+Anchor+Clutch+SpikeHandle+Adapt). 1.00 for own primary_role.
+- **`Player::role_fit_verdict(Role)`** — bands: Natural / Good fit / Possible / Stretch / Mismatch.
+- **Role-fit penalty in `evaluate_resign_offer`**: 0 for natural, −6 good, −14 possible, −28 stretch, −45 mismatch. Overpay (+55 salary cap) can rescue a "stretch"; mismatches near-reject.
+- **`primary_role` is write-once at spawn.** No engine code mutates it dynamically. `contract_role` is belt-and-braces protection against future drift.
 
 #### Financial Rebalance — economy is now tight
 
@@ -790,129 +758,77 @@ Used by: snake draft, auto_fill, scout_top_fas, mid-season replacements, year-en
 | Import appetite budget tier | 1M-2M floor/ceiling | **600K-1.5M** |
 | Org memory tier_baseline | Contender 1.5M / WinNow 2.5M | **900K / 1.5M** |
 
-Constants `vlr::kSalaryCapK = 180`, `vlr::kSalaryFloorK = 10` in Common.h. God-mode salary slider bounds updated. `decay_demands` floor → 10. `amount_with_mood` clamped to [10, 180].
+Constants `vlr::kSalaryCapK = 180`, `vlr::kSalaryFloorK = 10` in Common.h. God-mode salary slider bounds honor these. `decay_demands` floor → 10. `amount_with_mood` clamped to [10, 180].
 
-#### Smoke #14b — Duelist IGL mental floor (soft diagnostic)
-Generates 500 rookies. Originally hard-asserted no Duelist IGL has mental composite < 0.78. Relaxed to soft diagnostic note — TacticalIGL rookie archetype's stat shifts can push mental slightly below the gate after the IGL roll. Documented behavior, not a regression.
+> Current MVP / Role-of-the-Year / IGL-of-the-Year scoring formulas (which fold team success into all three) live in §4.14. Current Hall of Good gates live in the Frivolities sub-section of §4.16. Current smoke-test list lives in §9.
 
-#### Misc fixes during this period
-- Milestone news re-fire (added career-scoped `news_emitted_career_keys_` separate from year-cleared set)
-- `came_from_upper` robust (checks both .a/.b)
-- `last_mvp_leader_global` static→member field, cleared in reset_world
-- `solo_qs[region]` unchecked map lookup → `find()` guard
-- `world_difficulty_` clamp 0.5..1.5 → 0.7..1.3
-- Match.cpp cosmetic cleanups (`0.5+0.5+0.5*x`, `/1`, defender-flag helper)
-- Player dead "uniqueness check" loop actually consults `global_names()` now
-- TacticalIGL applies full canonical IGL shift + mental gate before forcing `is_igl`
-- IGL Profile gating: god-mode toggle moved to Overview Dev Tools
-- FlexBadge in DrawCompare
-- News page perf O(N×P)→O(1) via frame-cached signature map
-- Kill-feed perf O(N²)→O(N) via running counter
-- Tournament Player Stats sort persistence (now always re-applies, no version-key cache that froze on no-roster-change)
-- IGL OTY gate tightening: requires `igl_match_count > 0` (filters out transient enforce_one_igl promotions)
-- Transfer Market "Sign" button bug: row's Selectable had `SpanAllColumns` claiming clicks → added `AllowOverlap` + `SetNextItemAllowOverlap`
-- MC potential SKIPPED for solo Q ladder fillers (`deep_potential=false`) — saved ~6.5M progression ticks at world boot (the New Career hang)
-- OFFSEASON-end user-team fallback wired
-- AI year-end re-sign loop now runs for user_team too (manual control during season; AI as fallback at year-end)
+---
 
-### Big batch (2026-05-15) — audit fixes + zengm-inspired ports + UI consolidation
+## 5. UI (`gui_main.cpp`)
 
-**Bug fixes:**
-- Milestone news no longer re-fires every year (separate `news_emitted_career_keys_` set, never cleared)
-- News dedup-clear moved AFTER year-end emitter pass (spec §4.11 step 15)
-- `came_from_upper` now robust (checks both .a/.b, fallback scan of UB history)
-- `last_mvp_leader_global` promoted from function-static to GameManager member (cleared in `reset_world()`)
-- `solo_qs[a->region]` unchecked → guarded with `.find()` + skip
-- `world_difficulty_` clamp tightened 0.5..1.5 → 0.7..1.3 (matches spec)
-- Tournament dead field `ub_finals_round_just_played_` removed
-- Match.cpp cosmetic cleanups (`0.5+0.5+0.5*x` → `1.0+0.5*x`, `/1` → drop, defender flag → `is_team1_defender()` helper)
-- Player dead "uniqueness check" loop now actually consults `global_names()` for collision
-- TacticalIGL rookie archetype now applies the full canonical IGL stat shift (+ mental-gate check before forcing `is_igl`)
-- Tournament Player Stats sort now persists across frames (version-keyed cache + force-SpecsDirty on rebuild)
-- IGL Profile gating fixed (god-mode is_igl toggle now in Overview Dev Tools, reachable for any player)
-- DrawCompare position row now includes FlexBadge (canonical order PositionBadge → FlexBadge → IglBadge)
-- Live match `ImGui::Columns(2)` replaced with two `BeginChild` + `SameLine`
-- News page signature lookup O(N × all-players) → O(1) per item via frame-cached map
-- Kill-feed `kills_so_far` O(N²) → O(N) running counter
-- `build.bat` play.bat tip → Play.exe tip
+Single TU, ~12.5k lines (grew from ~6.3k pre-Phase-1 → ~8.1k post-Phase-1 → current after the Phase-2A flags/logos/wizard, the belief-AI re-sign + FA negotiation modals, the role-fit combo, and the clickable My Team chip). ImGui + Win32 + DX11.
 
-**New: per-attribute age-bucketed progression (Player.cpp):**
-Three aging classes — Mechanical (Aim/HS/Reaction/CrosshairPlacement/Movement, peaks 22-25, fast decay), Game-IQ (GameSense/Intel/Decision/MidRound/AntiStrat/Adapt/Econ/Comm/Lead, climbs into 28+, IGLs age gracefully), Athletic (Stamina/SpikeHandle/Anchor/Lurking/Pos/Aggro/Entry/Util/Clutch/Awping, middle). Asymmetric young-player noise (≤23 + breakout archetypes get +2y: stddev 5 clamped [-4,+20] → breakouts possible). Multipliers: work_ethic/65, consistency clamp 0.7-1.3, archetype consistency_mod, growth_archetype shift, potential pressure asymptote. `career_max_ovr` field updated per tick.
+### 5.1 Fonts
+`g_font_body` (Segoe UI 16), `g_font_small` (13), `g_font_h2` (Semibold 22), `g_font_h1` (Black 30), `g_font_kpi` (Black 38), `g_font_mono` (Consolas 15).
 
-**New: two-stage shouldRetire (Player.cpp):**
-- Stage 1 logistic: `logit = -8 + 0.18·(age-25) - 0.04·(potential-50) - 1.5·max(0, career_rating-0.95) - 0.05·career_seasons_played`
-- Stage 2 aging-star catch: age ≥ 30 AND `ovr < 0.70·career_max_ovr` → force retire
+### 5.2 Color palette + design system (premium dark)
 
-**New: Monte-Carlo potential (Player.cpp):**
-At rookie gen, 20 fast-forward sims to `max(peak_age+4, 29)`, take 75th-percentile terminal OVR, clamp 50-99. Replaces simple `mean + irange(5,20)` baseline.
+**Base palette** (constant NAMES kept, values retuned so all screens inherit). 2026-06-11 premium pass swapped the primary `kAccent` from electric cyan to a warm amber; cyan demoted to `kInfo` for data lines / info chips; shadows now tinted.
+```cpp
+kVlrNavy/kBgBase  #0F1117  deep charcoal window bg
+kBgDeep           #0B0D12  deepest (gutters / headers)
+kSurface          #171A24  card bg
+kSurfaceAlt       #1C202C  alt row / hover
+kSurfaceHi        #242938  raised / selected
+kBorder           #2A2F3D  hairline border
+kVlrText          #E9ECF1  near-white text
+kVlrSub           #8B93A3  muted secondary text
+kTextFaint        #5E6674  captions / labels
+kAccent           #D4A14C  warm amber — PRIMARY interaction accent
+kAccentDim        #9D7635  darker amber — pressed / focus depth
+kAccentSoft       #D4A14C 13%  for hover overlays / soft glows
+kAccent2          #7B5EFF  purple — secondary (archetype chips / histo)
+kInfo             #5BA8B0  muted teal — info chips / PlotLines (former kAccent)
+kInfoDim          #3F787F  darker teal
+kVlrBlue          #00D4FF  legacy cyan (still aliased — use kInfo in new code)
+kVlrGold          #FFD700  prestige / trophies ONLY — brighter than kAccent
+kVlrGreen         #3FD17A  success
+kVlrRed           #FF4655  VLR brand red — danger
+kShadow           #05070B 56%  surface-hued drop shadow (depth)
+kShadowSoft       #05070B 31%  softer shadow halo
+```
+**Color discipline rules (2026-06-11):**
+- Trophy / prestige moments → `kVlrGold`. Never use for routine UI interaction.
+- User-agency interaction (buttons, sliders, focus rings, sidebar active, hover lifts) → `kAccent`.
+- Data lines, info chips, stable-state indicators → `kInfo`. Don't mix into interaction surfaces.
+- Drop shadows → `kShadow` / `kShadowSoft`. Never `IM_COL32(0,0,0, alpha)`.
+Role colors unchanged (muted brick/indigo/forest/steel/amber + gold IGL) — deliberate prior user decision, still wired through `role_color`, `position_color`, scoreboard agent tinting, `RoleBadge/PositionBadge/IglBadge/FlexBadge`.
 
-**New: Hash-deduped award addition (Player.h/cpp):**
-`Player::add_award(string)` + `awards_seen_` mirror + `rebuild_awards_seen()`. `dedupe_awards()` resyncs the mirror at year-end. Belt-and-braces with existing dedupe pass.
+**`ApplyVlrTheme`** (2026-06-11 premium pass) — varied radius scale: Window 14 (softest outer chrome), Child 10 (panels/cards), Frame 6 (instrumented inputs/sliders), Tab 8, Scrollbar 12, Grab 6, Popup 12. Uniform rounding everywhere was the prior generic-AI default — never reintroduce. Generous padding: WindowPadding (24, 22), FramePadding (13, 8), CellPadding (12, 7); ItemSpacing (12, 10) for breathing room. Accent-driven interaction states (buttons/sliders/checkmarks/scrollbars use `kAccent` — warm amber); `ImGuiCol_PlotLines` uses `kInfo` (muted teal) so data lines don't compete with the gold interaction primary; `ImGuiCol_TextSelectedBg` uses 25%-alpha amber. Transparent tabs/childbg, subtle white-alpha row striping. Border kept hairline at 1px via `ChildBorderSize`/`PopupBorderSize` only.
 
-**New: H2H playoff/regular split + finals log (GameManager.h/cpp):**
-- `h2h_counts_regular_` + `h2h_counts_playoff_` + `h2h_finals_log_<H2HSeriesFinal>`
-- Public: `h2h_total/regular/playoff(Team*,Team*)`, `h2h_finals_between(Team*,Team*)`
-- Surfaced in TeamProfile Bio "RIVALRIES" + DrawCompare h2h section + DrawMarket OFFSEASON decay chip
+**`DrawSidebar` premium polish (2026-06-11):** active nav gets a 4px full-height `kAccent` "you are here" bar + `kSurfaceHi` raised bg + a 6% amber tint overlay; active text uses a brighter amber `IM_COL32(0xE8, 0xB8, 0x60, 0xFF)` for max contrast on the raised bg. Inactive items hovered get a 2px half-accent left bar painted on top of the framework hover bg. `navgroup` headers (Home/Team/Competition/People/History/Live) have a 1px `kBorder` hairline beneath the title so the six buckets read as distinct sections. User-org chip: hover paints a top-edge `kAccent` stripe mirroring active-nav language; tag font color is `kAccent` (not `kVlrGold`) for interaction-consistency. God Mode OFF uses a `kSurfaceAlt` fill (`kSurfaceHi` hover) so it reads as a real toggle row.
 
-**New: FA price-decay during OFFSEASON (GameManager.cpp):**
-3%/day decay during OFFSEASON window, floor at 70% of entered-offseason baseline. `fa_demand_baseline_k_` map tracks baseline, cleared at year rollover. Constants: `kFADecayRate=0.03`, `kFADecayFloorFraction=0.70`. UI shows "decayed" pill on affected FA rows.
+**Design-system helpers** (defined ~gui_main.cpp:420-580 — compose ALL new UI from these):
+- `BeginCard(id, bg, pad, rounding, hover_lift=false)/EndCard()` — auto-height rounded bordered card. As of 2026-06-11 every card paints a **tinted stacked drop shadow** via parent-draw-list channel-split + a 1px top inner highlight. `hover_lift=true` adds a 13% `kAccentSoft` tint overlay when the card is hovered. Backward-compat default keeps existing callers identical.
+- `BeginCardSized(id, size, bg, pad, rounding, hover_lift=false)/EndCardSized()` — fixed-size card with the same depth stack.
+- `TableRowSelectable(label, selected=false, flags=0, size={0,0})` — drop-in wrapper around `ImGui::Selectable()` for table rows. On hover paints a 3px `kAccent` left bar + 13% `kAccentSoft` row overlay. Apply to row Selectables everywhere except sidebar nav, bracket cards, and combo/dropdown items.
+- `Pill(text,bg,fg=0,extra_pad)` / `PillOutline(text,line,fg)` — rounded chips, auto-contrast text
+- `SectionHeader(title,subtitle,accent)` — accent bar + H2 + dim subtitle
+- `StatTile(label,value,accent,size,sub)` — KPI tile with accent edge
+- `MutedText(fmt,...)` / `VSpace(h)` / `ThinDivider(pad_y)` / `brightish(ImU32)`
+- `SigBadge(Player&)` / `FlexBadge()` / `IglBadge()` / `PositionBadge(Position)` — inline player-side chips.
 
-**New: Sidebar consolidation 16 → 6 groups (gui_main.cpp):**
-- **Home** — Dashboard · News
-- **Team** — Roster · Manager · Calendar
-- **Competition** — Standings · Tournaments · Power Rankings
-- **People** — Transfer Market · Solo Q · League Leaders · Compare
-- **History** — Favorites (with sub-tabs incl. new Frivolities) · Event Log
-- **Live** — Watch
+**Internal card helpers (2026-06-11):** `CardFrame_` + `CardStack_()` thread the parent draw list + `ImDrawListSplitter` from each Begin to its matching End so the tinted drop shadow can be back-painted into channel 0 with the child's resolved final rect (works for AutoResizeY and fixed-size). `CardBegin_` / `CardEnd_` / `CardPaintInner_` / `PushCardStyle_` / `PopCardStyle_` are the implementation seams — do NOT call these directly from screen code; always go through `BeginCard` / `EndCard`.
 
-Each group is a sidebar entry with internal `ImGui::BeginTabBar` dispatching to existing `Draw*` functions (no draw functions rewritten).
+**Tabular figures rule (2026-06-11):** every numeric cell in a multi-row table wraps `ImGui::Text("%d|%.2f|$%dK|%.0f%%", ...)` with `ImGui::PushFont(g_font_mono) / ImGui::PopFont()`. Text columns (names, regions, agent names) STAY in body font. Already done across DrawRoster, DrawStandings, DrawMarket, DrawSoloQ, DrawCompare, DrawLeagueLeaders, DrawHallOfFame, Awards History, Favorited, GOAT Career / GOAT Season / Hall of Records / Team Profile roster / Player Profile Match History. New tables MUST follow the rule.
 
-**New: 5 Frivolity views (Favorites → Frivolities sub-tab):**
-1. Best Without a LAN — career rating leaderboard, no [M]/[W]
-2. Youngest MVPs — sorted by age at [A] MVP win
-3. Hall of Good — retired players hitting 2-3 HoF criteria (4+ = real HoF)
-4. Biggest Busts — `career_max_ovr < potential - 15` AND retired/age≥28, with reason chip
-5. Seasons Without a Title — top single-season ratings whose teams didn't win that year
-
-**Bracket UI audit:** layout was structurally correct. Added defensive UB monotonic-shrinkage MutedText warning if anomaly detected. Engine-side `Tournament::validate_bracket_state(out_err)` debug walker added by Pack B for future UI assertions.
-
-**Smoke tests:** 19 now (added #14b Duelist-IGL mental floor diagnostic). All pass at seed 1337 + multi-seed 18 (1337/42/7).
-
-**Patches applied during build pass:**
-- Added fwd decl `static int monte_carlo_potential(const Player&)` before `generate_player` (defined later in file)
-- Added fwd decl `std::vector<vlr::PlayerPtr> all_players_world(AppState&)` in gui_main.cpp's early-decl block (frivolity views use it before its definition site)
-- TacticalIGL rookie archetype: post-shift mental gate check (skips `is_igl=true` for Duelists below 0.78)
-- Smoke #14b relaxed from "hard fail" to "soft diagnostic note" — the floor is a spawn-time gate, not an invariant guaranteed across all subsequent shifts
-
-### Archetype system + variance rebalance (2026-05-15) — see also §4.4
-
-**32-archetype playstyle system (Player.h/cpp)** — a THIRD, sim-driving system distinct from `rookie_archetype` (16-value growth template) and `playstyle_identity()` (derived display label). `enum class Archetype` (32 + Count): MechanicalDemon, HyperAggroEntry, SmartLurker, IceColdClutcher, UtilityGenius, PassiveAnchor, TempoController, MomentumFragger, LANDemon, OnlineFarmer, TacticalGenius, RiskyPlaymaker, ConsistencyMachine, ConfidencePlayer, SlowMethodical, HighCeilingLowFloor, AggressiveAWPer, SupportiveFacilitator, FlexGenius, AntiStratMaster, EcoSpecialist, EntrySacrifice, TeamFirstGlue, OverheatingSuperstar, RookieMechFreak, VeteranStabilizer, ClinicalCloser, ChaosAgent, ZoneController, RetakeSpecialist, DuelistDiva, QuietProfessional. `Player::archetype` assigned once at spawn via `pick_spawn_archetype()` (attr-fit scoring + role-gate + rookie_archetype nudge + rng pick among top-4 so same-role players diverge). `ArchetypeProfile archetype_profile(Archetype)` — pure O(1), 14 modest float modifiers (aggression_mult, fight_selection, utility_timing, clutch_mult, consistency_mod, tempo, risk_tolerance, lan_mod, momentum_sensitivity, economy_discipline, consistency_floor, ceiling_boost, teamplay_mod, adapt_mod) + name. Profiles LAYER on attribute math, never replace it — magnitude still attribute-dominated.
-
-**Match.cpp variance rebalance (user: "top teams steamroll, no variance"):**
-- `compress_power()` — diminishing returns above ~70-attr pivot (0.62 marginal retention). Ordering preserved; elite-vs-elite duels close so good teams trade maps.
-- Round jitter widened (inverse-consistency band 0.02-0.10 → 0.035-0.18).
-- **Per-map off-day roll** — asymmetric, floor never below 3.5% even for 95-consistency stars → genuine 0.7-0.9 stinker maps sprinkled in.
-- **Per-team matchup swing** — independent ±6% (clamp ±14%) team tilt → clearly-better team now drops ~25-40% of maps but wins series on average.
-- Two-way decaying momentum (×0.78/round + ±0.45 nudge, ±0.075/duel cap) replaces snowball-only — 0-8 comebacks possible.
-- Comp-synergy spread widened 0.90-1.10 (clamp 0.89-1.14) — meta/comp mismatch matters more.
-- Rating formula coefficients, damage-per-kill, kill weights UNCHANGED (§7) — only inputs/variance changed. Archetype fields wired into existing layered terms within the §7 per-duel ≤+0.32 cap + `compute_attr_extras` clamp.
-
-**2026-05-15 follow-up fixes:**
-- **God Mode IGL editing**: Player Profile IGL tab now exposes editable SliderInts (attrs incl. MidRound/AntiStrat/Leadership/Comm/GameSense/Intel/Decision/Adapt/Econ), DragFloat for igl_impact_total/season/peak, InputInt for igl_match_count/season_pressure_matches, is_igl toggle — all under a gold `SectionHeader("DEV TOOLS — IGL")`, read-only when god mode off.
-- **Power Rankings**: removed nested scroll children (single vertical page scroll, no horizontal bar); `DrawRankRow` is fixed 56px with explicit pixel columns [14/64/116/168/400], analyst note ellipsised, width clamped to content region.
-- **Dashboard**: "Next Match" tile value shortened to fit; full description moved to a wrapped `PushTextWrapPos` line below the KPI strip.
-- **Sortable tables**: Standings, League Leaders, Hall of Records, Greatest Seasons, Trophy timeline, Tournament Player Stats, and the live Scoreboard use `ImGuiTableFlags_Sortable|SortMulti`; stat columns default DESC, name/team ASC, `TableGetSortSpecs`+`SpecsDirty` gated. (DrawCompare intentionally NOT sortable — transposed metric sheet, no record-per-row backing; flagged for redesign if needed.)
-- **Tournament "Player Stats" sub-tab**: `DrawBrackets` now has an inner TabBar (Bracket | Player Stats) inside the per-tournament `PushID/PopID`; existing bracket render wrapped in a `render_bracket` lambda. 16-col sortable table from `aggregate_player_stats()`, default Rating desc, green/red rating+KD tint, empty placeholder.
-- **Live match revamp**: broadcast-style `DrawScoreBanner` (ellipsis-clamped, leading/trailing emphasis, spoiler-safe), `DrawRoundTimeline` scrolls in its OWN horizontal strip only, kill-feed rows reserve real `InvisibleButton` slots (fixes overlap bug), framed round-result + economy (graceful "not recorded" placeholder) + gold ACE/CLUTCH callout cards. All action labels + playback_speed 0-3 + solo-Q weak_ptr fallback preserved.
-
-**2026-05-15 round 2 (live scroll + POT/dev + archetype surfacing):**
-- **Live match — all internal scroll killed**: every inner `BeginChild` in `DrawLiveMatchModal`/`DrawScoreBanner`/`DrawRoundTimeline`/`DrawTeamScoreboard` set `NoScrollbar|NoScrollWithMouse`; the kill-feed `##events` child switched to `ImGuiChildFlags_AutoResizeY` (was a fixed 360px clipping/scrolling child — the main offender). Only the modal popup scrolls. Timeline keeps its single-axis HORIZONTAL strip with `NoScrollWithMouse` (wheel scrolls page). Hard `Columns(2)` replaced with responsive split: side-by-side ≥1000px else stacked + `ThinDivider`. Modal clamped to viewport WorkSize.
-- **POT / development visibility**: Dashboard gained a `##dash_development` card — table of Name/Role/Age/OVR/POT/Form/Contract + color-coded Trajectory Pill (Rising▲/Developing▲/Established—/Declining▼/High-Risk Prospect, derived from age + potential−ovr gap). Player Profile Overview shows OVR+POT `StatTile`s, Form, Age/WorkEthic/Consistency, Contract.
-- **Archetype surfaced**: Player Profile hero shows `archetype_name(p->archetype)` as a purple `kAccent2` Pill + "OVR → POT" pill + trajectory pill, alongside the kept playstyle_identity chip.
+All screens use these helpers (cards, KPI strips, pill badges, section headers, striped tables, broadcast-style score banner/scoreboard, VCT bracket). Engine/data/logic flow through here untouched — this is purely the visual layer.
 
 ### 5.3 Helpers
 
-`H1/H2/Sub`, `RoleBadge(Role)`, `PositionBadge(Position)`, `IglBadge()` (separate small gold pill chained after PositionBadge when `is_igl == true`), `CountryFlag(iso)` (procedural), `KpiCard`, `player_label(p)`, `OpenPlayerModal`, `OpenTeamProfile`, `OpenLiveMatch`, `OpenLiveMatchSeries`, `OpenReplay`, `OpenReplaySeries`, `fmt_money`.
+`H1/H2/Sub`, `RoleBadge(Role)`, `PositionBadge(Position)`, `IglBadge()` (small gold pill chained after PositionBadge when `is_igl == true`), `FlexBadge()` (muted-amber companion), `SigBadge(Player&)` (canonical muted-gold inline signature-agent pill — empty `signature_agent()` => no-op; used everywhere a player name appears in a list/row), `CountryFlag(iso)` (procedural), `KpiCard`, `StatTile`, `Pill`, `PillOutline`, `SectionHeader`, `MutedText`, `BeginCard/EndCard`, `BeginCardSized/EndCardSized`, `player_label(p)`, `fmt_money`, `OpenPlayerModal`, `OpenTeamProfile`, `OpenLiveMatch`, `OpenLiveMatchSeries`, `OpenReplay`, `OpenReplaySeries`.
+
+**Negotiation modal:** `DrawNegotiationModal(state, mode, popup_id, target, team, years, amount, role, cached_offer, cached_mkt_k, cached_for, show_modal)` is the **single** entry point for both Re-sign (Roster → Re-sign button) and FA Sign (Market → Negotiate button). Caller picks `NegotiationMode::Resign` or `NegotiationMode::FreeAgentSign`. The helper handles the offer cache, role combo, transparent breakdown, action buttons, AND the commit (Resign → `Team::resign_player` / FA → pre-flight gates + `Team::sign_player` + budget debit + `sync_player_ranked_region`). Don't reimplement either flow inline — extend the helper.
 
 ### 5.4 Sidebar screens
 1. Dashboard
@@ -964,17 +880,30 @@ Two open paths: `OpenLiveMatch` (single map, friendly), `OpenLiveMatchSeries` (f
 
 `DrawTeamScoreboard` colors the agent name by the AGENT's role (via `chosen_agents_[player]->role` looked up via `find_agent_by_name(agname)`), NOT by `p->primary_role`. A Controller main flexed onto Killjoy renders in Sentinel green, not Controller indigo.
 
-### 5.8 Bracket UI (VCT-style, redesigned 2026 May)
+### 5.8 Bracket UI (VCT-style)
 
 Per-tournament rendering wrapped in `PushID/PopID`. **Tabs per region** + International. Layout:
 - **Two vertically separated panels** inside a horizontally scrollable child: UPPER BRACKET on top (gold H2 header), LOWER BRACKET below (muted-red H2 header), horizontal divider between
 - **Cards** 152×60, 2-row team layout (tag + name + right-aligned score). Winner row tinted via team primary color stripe; loser dimmed; unplayed mid-tier opacity
 - **BO5 chip** — 28×12 gold pill in card top-right when `best_of >= 5`. Visible on LB Final + GF + GF Reset only
 - **Connecting lines** rendered via `DrawBracketConnector` (H-V-H 3-segment polyline). Color: `kLinePlayed` for played, `kLineUnplayed` for unplayed
-- **Round labels** sourced from `Tournament::current_round_label()` (Agent A's accessor) for the live round; played rounds use `BracketMatch::label` or fall back to generic ("UB R1", "UB Semifinals", "UB Final", "LB R1"…"LB Semifinal", "LB FINAL (BO5)" in gold all-caps)
+- **Round labels** sourced from `Tournament::current_round_label()` for the live round; played rounds use `BracketMatch::label` or fall back to a count-based generic that takes `(round_idx, total_rounds, is_lower)` so 1-card LB rounds NOT at the end label as "LB Semifinal" while only the actual last LB round becomes "LB FINAL".
 - **Grand Final column** sits right of UB panel, centered vertically against UB final card. Single GF card (no reset stacking — modern VCT format)
 - **Empty-bracket guard**: shows "Bracket starts after group stage." if no UB history and no scheduled UB
 - **Per-card invisible buttons** ID'd via `id_base + round*100 + i` namespaced per tournament
+
+**Feeder math — size-aware (CRITICAL, 2026-06-11):**
+- Each round's card has 1 or 2 feeders from the previous round. The rule:
+  - `prev_n == cur_n` → **straight pair**: card `i` feeder is prev card `i` (used by LB R1→R2 and LB SF→Final, where the "other feeder" is a UB drop-in that isn't drawn in the LB panel).
+  - `prev_n == cur_n * 2` → **halving**: card `i` feeders are prev cards `i*2` and `i*2+1` (used by every UB round and by LB pure-halve rounds).
+  - Otherwise (degenerate): clamp like halving with `std::min(prev_n - 1, ...)`.
+- Same rule applies to vertical Y placement (midpoint-of-feeders) AND to connector drawing.
+- The OLD bug: halving math everywhere clamped LB R2's two cards both onto R1's last card, collapsing the LB panel. Never reintroduce the unconditional `i*2 / i*2+1` form.
+
+**LB padding (CRITICAL, 2026-06-11):**
+- `build_round_grid` for `is_lower=true` pads future rounds with TBD placeholders matching the canonical LB shape — odd next-round indices MERGE (`size = prev_size`), even next-round indices HALVE (`size = (prev_size + 1) / 2`). For 8 teams that yields [2, 2, 1, 1]; for 16 teams [4, 4, 2, 2, 1, 1]; for 4 teams [1, 1].
+- `lb_target` comes from `2 * log2(initial_seeding().size()) - 2`, NOT from `lower_bracket_round_count()` (that accessor returns the count of *played* LB rounds — useless for padding).
+- Last padded round stamps `best_of = 5` so the gold "BO5" badge renders correctly on the LB Final placeholder.
 
 Click handler: played → `OpenTeamProfile(winner)`. Unplayed → `OpenLiveMatchSeries(s, a, b, event_name, best_of)` using each match's stamped `best_of` (BO3 default, BO5 for LB Final + GF + Reset).
 
@@ -1130,12 +1059,18 @@ Reserved for v2: round_history, economy_log, utility_impact, heatmap_kills, abil
 36. **Duelist IGLs require elite mental composite** — both `roll_is_igl_at_spawn` (gate ≥0.78) and `enforce_one_igl` (veto if score < 0.80) check this. Don't lower the threshold without user sign-off — they explicitly want Duelist IGLs to be "extremely rare".
 37. **`enforce_one_flex` is insert-only** — never demotes. Multiple Flex players in starting 5 are legal. Adding demotion would revert intentional user design.
 38. **Transfer Market has NO Position filter on FA list** — `DrawMarket` iterates `solo_qs[*]->global_ladder()` filtered ONLY by `team_name == "Free Agent"`. Adding any Position-keyed filter would re-introduce the Flex-players-missing bug (previously caused when `position_of` returned `Position::Flex` and no filter bucket existed for it).
+39. **Tabular figures rule (2026-06-11)** — every numeric body cell in a multi-row table MUST be wrapped with `ImGui::PushFont(g_font_mono) / ImGui::PopFont()` so digits align vertically across rows. Text columns (names, regions, agent names) stay in body font. Skipping this on a new table produces visible "wobble" in stat columns that violates the project's design-system rule. See §5.2 for the full call-site list.
+40. **`BeginCard` shadow is back-painted at `EndCard` time** — the helper splits the parent draw list into two channels (0=shadow underlay, 1=card+content), captures the child's resolved final rect right before `EndChild`, then paints `kShadow`+`kShadowSoft` onto channel 0 and merges. Implications: (a) every `BeginCard(...)` MUST have a matching `EndCard()` or the splitter never merges and the draw list is left in a broken state; (b) the per-card `CardFrame_` is held in a file-scope `std::vector<CardFrame_>` stack — nested cards work, but `BeginCard` followed by `BeginChild` (without `EndCard`) does not.
+41. **`TableRowSelectable` scope (2026-06-11)** — wrapper that adds the warm-gold hover-lift (3px left bar + 13% kAccentSoft overlay). Use for row Selectables in tables (player rows, team rows, FA rows, tournament participants, leaderboards). DO NOT use for sidebar nav (own bespoke paint), bracket cards (own custom hover tooltip), combo/dropdown items. Using it on those surfaces double-paints the hover affordance and fights with the bespoke art.
+42. **Pure-black drop shadows are a regression** — every new shadow MUST use `kShadow` or `kShadowSoft` (surface-hued black) per §5.2 color discipline rules. `IM_COL32(0, 0, 0, alpha)` shadows read as a generic AI fingerprint against the real broadcast palette. The only legitimate pure-black `IM_COL32(0,0,0,...)` uses still in the file are flag outlines (alpha 0xC0) and transparent-button fills (alpha 0).
+43. **Color discipline: kVlrGold vs kAccent vs kInfo** — trophy/prestige only ever uses `kVlrGold` (bright `#FFD700`). User-agency interaction (buttons, sliders, focus rings, sidebar active, hover lifts) uses `kAccent` (warm amber `#D4A14C`). Data lines / info chips / stable-state indicators use `kInfo` (muted teal `#5BA8B0`). Mixing these breaks the visual hierarchy — e.g., painting a button in `kVlrGold` falsely signals "this is a trophy moment", and painting a plot line in `kAccent` competes with the gold interaction primary.
+44. **`ImDrawListSplitter` MUST NOT be held by value in any owned container (2026-06-16)** — `ImDrawListSplitter` contains `ImVector<ImDrawChannel> _Channels;`, and `ImVector<T>::operator=` does a **shallow `memcpy`** (imgui.h:2061). Copying a struct that owns a splitter aliases its channel `_CmdBuffer.Data` / `_IdxBuffer.Data` pointers between source and copy; the next destructor to run frees memory the other copy still references → `STATUS_HEAP_CORRUPTION` flagged by ntdll on the next allocation. That was the root cause of the 2026-06-16 Start-a-New-Career crash. **Rule**: any struct that owns an `ImDrawListSplitter` and ends up in a `std::vector` / `std::optional` / similar value-storing container MUST hold the splitter via `std::unique_ptr<ImDrawListSplitter>`. The unique_ptr deletes the implicit copy ctor, forcing move semantics and turning any future regression into a compile error. See `CardFrame_` in `gui_main.cpp:483` for the canonical pattern, and `CardBegin_` / `CardEnd_` for the move-on-push / reference-on-pop access pattern.
 
 ---
 
 ## 9. Smoke Tests (`smoke_test.cpp`)
 
-**18 tests**, run via `vlrtest.exe --seed N`:
+**19 tests** (1–18 plus #14b), run via `vlrtest.exe --seed N`:
 
 1. attr table round-trip
 2. player generation + sanity bounds
@@ -1151,6 +1086,7 @@ Reserved for v2: round_history, economy_log, utility_impact, heatmap_kills, abil
 12. every signed player has a real contract
 13. FA mood adjusts demands and refusals
 14. STRICT one-IGL-per-team after a full season
+14b. Duelist IGL mental floor + scarcity (soft diagnostic) — generates 500 rookies, asserts a sane spread of IGL roles (D/I/C/S) and notes if Duelist IGLs end below the 0.78 mental composite floor after archetype stat shifts. Soft note rather than hard fail because TacticalIGL rookies legitimately land just under the gate post-shift.
 15. tournament bracket plays through ALL rounds
 16. JSON export of completed series produces valid, accurate output
 17. Trophy integrity (no phantoms) — full season, walks every rostered player + FA. Checks: no duplicate `[T]/[M]/[W]` awards; trophy-holding rostered players have `career_matches > 0`; helper accessor consistency; year suffix within `[start_year-1, +1]`; snapshot alignment; no FA phantoms.
@@ -1181,10 +1117,16 @@ Reserved for v2: round_history, economy_log, utility_impact, heatmap_kills, abil
 - `MatchExport.h/cpp` — `export_series_to_json` (hand-rolled writer, schema v1)
 
 ### UI
-- `gui_main.cpp` — single TU. Muted role palette, PositionBadge + IglBadge separation, 5-slot roster layout, spoiler discipline, scoreboard with agent-role coloring, JSON export buttons, god-mode editors
+- `gui_main.cpp` — single TU (~12.5k lines). Muted role palette, PositionBadge + IglBadge separation, 5-slot roster layout, spoiler discipline, scoreboard with agent-role coloring, JSON export buttons, god-mode editors. **Module split planned — see §11.**
+- `LogoArt.h/cpp` — typographic monogram badge system (2026-06-11). Every team logo composed of three layers driven from `shape_idx` + the team's `tag`:
+  1. **Frame backplate** — 5 polished shapes (Shield/Hex/Circle/Diamond/Banner) selected via `shape_idx % 5`. Drop-shadow → darker rim → primary fill → top highlight → 1px inner-glow ring at 30% accent alpha (inset ~2px from the hairline border, lifts the badge) → hairline accent border. The shadow is a slight blue-leaning charcoal `IM_COL32(0x05, 0x08, 0x10, ...)` not pure black; the top highlight is warmed off-white `(255, 250, 235)` not pure white — both tweaks make the badge harmonize with the warm-amber UI accent.
+  2. **Monogram** — team's `tag` rendered as bold typography centered in the frame, auto-sized for tag length (1ch=1.20r, 2ch=0.90r, 3ch=0.70r, capped 9..64px). Drop-shadowed with a vertical-dominant offset (2%/8%) for light-from-above. Color picked for luma contrast against the primary backplate (accent → white → black fallback). Legacy callers passing no `tag` get a stable per-shape default monogram (`kDefaults[]` table). Defensive font fallback: if `ImGui::GetFont()` returns null (e.g. wizard preview mid-init), uses the first font in the atlas instead of silently rendering nothing.
+  3. **Accent flourish** — 4 small decorations (top stripe with rounded ends / corner dots at 0.10r so they read at 24px thumbnails / bottom chevron / inner outline of the frame) selected via `(shape_idx / 5) % 4`.
+  `draw_team_logo(...)` takes an optional `const char* tag = nullptr`. `TeamLogo()` in gui_main.cpp passes `team.tag.c_str()`; the new-game wizard derives a tag from the user's org name. `kLogoShapeCount` stays at 30 so the personality-bias pools on `Team` keep spreading teams across templates evenly even though only 20 distinct frame+accent combinations exist.
+- `FlagBitmaps.h/cpp` — 31 ISO-coded country flag bitmaps embedded as 24×16 ARGB. Used by `CountryFlag()`.
 
 ### Tests + entry points + tools
-- `smoke_test.cpp` — 17 smoke tests
+- `smoke_test.cpp` — 19 smoke tests
 - `main.cpp` — console fallback (vlrmanager.exe)
 - `launcher.cpp` — Play.exe auto-build launcher
 - `build.bat` — MSVC build script. CORE_SRC includes NamesData.cpp + MatchExport.cpp. vlrgui.exe links `comdlg32.lib`.
@@ -1195,60 +1137,83 @@ Reserved for v2: round_history, economy_log, utility_impact, heatmap_kills, abil
 
 ## 11. Pending Tasks / Wishlist
 
+> Historical "DONE" entries (Phase 1, Phase 2A, role overhaul, belief-AI overhaul, etc.) live in [CHANGELOG.md](CHANGELOG.md). This section is pending/roadmap only.
+
 ### Known limitations
-- **Korea / Singapore / China / Chile names** still use hardcoded fallback pools (high duplicate rate). Expand by hand in `Names.cpp::pool_for` if needed.
 - **Save/load persistence** — major engineering effort. Closing the exe loses all progress. Highest user wishlist item.
 - **Trade system** — currently sign/release only. No 1-for-1 player swaps or pick trading.
-- **shared_ptr cycle leak** RESOLVED (RecordedMatch.team1/team2 are weak_ptr).
-- **Calendar UI redesign** — still table-based.
+- **Player injuries** — not implemented at all (no injury state on Player).
+- **Korea / Singapore / China / Chile names** still use hardcoded fallback pools (high duplicate rate). Expand by hand in `Names.cpp::pool_for` if needed.
 
-### Role overhaul DONE (2026 May) — see §4.4.1
-- Position enum shrunk D/C/S/I/Flex/Count → D/C/S/I/Count (Flex demoted back to overlay flag)
-- IGL spawn reworked: per-role base chance × mental composite. Duelist 0.04 base + 0.78 hard floor → Duelist IGLs now extremely rare (~3-7% of all IGLs)
-- `enforce_one_igl` uses role-weighted mental score with Duelist veto. No more "promote on Leadership only" hot-swaps
-- `enforce_one_flex` insert-only — multiple Flex players in starting 5 allowed
-- `auto_fill_roster`: 1D + 1C + 1S + 1I + 1 generic 5th (Flex→I→C→FA cascade)
-- Transfer Market: Flex-FA-missing bug fixed (root cause was `position_of` returning Position::Flex with no filter bucket; now resolved by removing Position::Flex entirely)
-- UI: 4 canonical roster slots + "5th", `FlexBadge` chip alongside `IglBadge`, badge render order PositionBadge → FlexBadge → IglBadge
+### Half-built hooks (engine wires exist, nothing fills them)
+- **`world_difficulty_`** — stored, persisted, clamped 0.7-1.3. Never consumed by AI strength scaling. New Game Wizard surfaces it as a slider that currently has zero gameplay effect.
+- **Dynasty tiers — ChampionEra / Contender** — `Team::dynasty_tier()` checks `finals_history_`, but `finals_history_` is never populated by GameManager. Only the **Dynasty** tier (titles-only) is reachable today.
+- **Flex of the Year award** — UI placeholder card in Awards Recap. `compute_season_awards` never produces it.
+- **JSON export v2 fields** — schema v1 ships. `round_history`, `economy_log`, `utility_impact`, `heatmap_kills`, `ability_usage`, `timeline_events` are reserved but unwritten.
+- **Tournament "today's matches" hook** — `active_tournaments` doesn't expose a today-filtered list, so calendar previews fall back to week-of-the-season approximation.
 
-### Phase 2A DONE (2026 May) — flags + logos + names + new-game wizard + calendar
-- Real flag bitmaps for 31 ISO codes (`FlagBitmaps.h/cpp`, 24x16 ARGB, ~47 KB embedded). Used by rewritten `CountryFlag()` via per-pixel `AddRectFilled`. Unknown ISO falls back to procedural draw.
-- 22 procedural team logos (`LogoArt.h/cpp` — Shield/Hexagon/Diamond/Circle/Triangle/Star/LightningBolt/Crown/Wolf/Eagle/Phoenix/Dragon/Wave/Mountain/Sun/Crosshair/Sword/Anchor/Flame/Skull/Compass/Tree). `Team::logo_shape` field hash-assigned at gen with 30% personality bias (Aggressive→Bolt/Skull/Dragon/Flame/Sword; Tactical→Crosshair/Hexagon/Compass; Budget→Triangle/Anchor/Mountain/Tree). UI helper `TeamLogo(team, size)` wired into sidebar user-org chip, Team Profile header (96px), League Standings rows (24px).
-- Revamped team-name generator (`Common.cpp`): 12 styles total — original 5 plus animal+descriptor, region-flavored, Greek/Latin/mythic, military/tactical, color+animal/noun, two-word esport, single-word — 15k+ permutations. Global de-dup retained. `make_team_tag` handles 1/2/3+ word names with last-word fallback.
-- `NewGameConfig` struct + `GameManager::initialize_world_with_config(cfg, log)` + `GameManager::reset_world()` (clears every owned container incl. rankings/news/snapshots/h2h). Existing `initialize_world()` delegates to the new path with default cfg. Difficulty stored as `world_difficulty_` (0.7-1.3 slider; not yet consumed by AI strength — future hook).
-- **New-Game Wizard** in `gui_main.cpp` (`DrawNewGameWizard`) — full-screen modal at boot, two-column form (org name / city / region / country with flag preview / 5-tier OrgTier radio / primary+accent ColorEdit3 with name-hash auto-derive / difficulty slider / starting year) + live preview (TeamLogo + colors + mock standings row). "Start New Career" calls reset+init. Sidebar "NEW CAREER" button with warning modal re-arms the wizard mid-session. `wWinMain` short-circuits to wizard when `show_new_game_wizard=true`.
-- **Calendar redesign** (`DrawCalendar`): 5x7 day grid centered on today, ±30 nav buttons, per-cell phase tint (Stage/Playoffs/Masters/Champions/Awards/Offseason), gold today outline, blue user-match background, red tournament border, click → matchup modal with WATCH buttons routing to `OpenLiveMatchSeries`. Legend bar.
+### Recent specs shipped partially
+- **Role lock** — `contract_role` field exists and is stamped at every sign path, but no explicit "lineup lock" UI toggle (audit said no engine code currently shuffles roles, so a toggle wouldn't gate anything real).
+- **Role-fit ongoing effects** — applied at signing time only. User spec also asked for "reduce morale" and "increase future departure risk" from bad-fit signings — not implemented.
+- **Secondary comfort roles in Player Profile** — `role_fit_verdict()` accessor exists but no dedicated UI tab listing the 4 verdicts per player. Only surfaces inside the negotiation combo.
+- **Bench extension semantic** — Re-sign button is open on bench players, but "Extension" (additive years) vs "Re-sign" (replacement contract) is still the same operation under the hood — just relabeled.
+- **Legacy negotiation modal bodies** — `DrawRoster` and `DrawMarket` each still hold the pre-extraction Re-sign / FA modal body under `#if 0` as a fallback during rollout of `DrawNegotiationModal`. Delete in a follow-up after a full session of confirmed parity.
 
-**Build notes:**
-- `LogoArt.cpp` is compiled into CORE_SRC but LINKED ONLY into `vlrgui.exe` (references ImGui draw symbols). `FlagBitmaps.cpp` is plain data, linked into all 3 exes.
-- `LogoArt.cpp` requires `#include <algorithm>` for `std::max` (header-only include from `<cmath>` is not enough).
+### Audit gaps — next-slice candidates (2026-06-11)
+Captured from a full-UI integration audit on 2026-06-11. Highest user-visible impact first:
+- **Bracket card seed numbers** — `Tournament::initial_seeding()` is populated; bracket cards don't display the team's initial seed. Add "#3" prefix or sublabel via index lookup. UB R1 is the highest-value spot.
+- **`Tournament::validate_bracket_state` debug overlay** — accessor exists, never called. Wire as optional gold "[debug]" line under bracket panel when validation fails.
+- **OrgMemory god-mode display** — 6 rolling metrics tracked, never exposed even in god mode. Add read-only card to Commissioner table per team.
+- **`Player::Desire` editor** — god-mode reveals Desire + blurb but never lets user edit it. Add Desire combo to Player Profile god-mode dev-tools, mirroring the rookie_archetype combo pattern.
+- **`Team::TeamWindow` override** — Strategy is editable in god mode but Window (Opening/Open/Closing/Closed) isn't. Add combo in Commissioner table for forcing window state.
+- **Map mastery god-mode editor** — Agent Mastery tab has matches/avg/peak sliders; Map Mastery doesn't. Mirror the pattern.
+- **HoF milestone helper** — UI hardcodes `>= 30 kills`, `>= 200 KDx100` etc. as HoF criterion display literals. Engine should expose `Player::hof_milestone_list()` returning the satisfied criteria as a vector so threshold tweaks don't require GUI edits.
+- **Player row rendering duplication** — DrawRoster / DrawMarket / DrawTeamProfile / DrawLeagueLeaders independently build similar row patterns. Strong candidate for an extracted helper, ideally landed during the planned gui_main.cpp split (see §5 below).
+- **KPI strip rendering duplication** — Dashboard / Team Profile / Manager Finance hand-build StatTile sequences with subtle inconsistencies. Extract `render_team_kpi_strip(team, flags)` during the split.
 
-### Phase 1 DONE (2026 May) — see §4.16
-- Power Rankings + Community Rankings (weekly tick, tier bands, analyst notes)
-- 10 new news emitters (breakout/slump/hot streak/milestone/retirement countdown/transfer rumor/rivalry/upset/historic performance/dynasty watch)
-- Trophy Room + Hall of Records + Greatest Seasons (Favorites tabs)
-- Player Compare page with head-to-head
-- Signature agent surfacing (4 sites)
-- Team trophy_case + dynasty_tier (Dynasty tier wired; ChampionEra/Contender awaits finals_history)
+### Planned — `gui_main.cpp` module split
+~12,500-line single TU is the biggest architectural drag in the project. Documented permission from the user (2026-06-11) to land a multi-file split when context allows. Proposed shape:
+```
+cpp/src/ui/
+├─ ui_common.h/cpp       Theme, fonts, design-system helpers (Pill,
+│                        PillOutline, SigBadge, FlexBadge, IglBadge,
+│                        StatTile, SectionHeader, BeginCard, MutedText,
+│                        fmt_money, OpenPlayerModal, OpenTeamProfile, etc.)
+├─ ui_modals.cpp         Player Profile + Live Match + DrawNegotiationModal
+├─ ui_dashboard.cpp      Dashboard
+├─ ui_team.cpp           Roster + Team Profile + Manager
+├─ ui_competition.cpp    Standings + Tournament + Power Rankings + League Leaders
+├─ ui_people.cpp         Transfer Market + Solo Q + Compare
+├─ ui_history.cpp        Favorites + Event Log
+├─ ui_live.cpp           Watch Match + scoreboard
+├─ ui_calendar.cpp       Calendar + News
+└─ gui_main.cpp          Entry point, AppState, sidebar, main loop
+```
+Constraints when landing this:
+- Pure mechanical move — do NOT change function logic inside the move. Refactor passes happen AFTER the split lands clean.
+- ImGui IDs depend on label strings — moving code between TUs is safe; renaming `##` labels is not.
+- Each new .cpp gets the same anonymous-namespace pattern. Helpers shared across files move to `ui_common.h`.
+- Keep `#if 0` legacy modal bodies in `DrawRoster` / `DrawMarket` UNTIL parity on `DrawNegotiationModal` is confirmed across a full play session — see "Recent specs shipped partially" above.
+- Build by extracting `ui_common.{h,cpp}` first, building, smoke-testing. Then move screens one at a time, building between each.
 
-### Phase 2 — small systems on existing data (NEXT, when user asks)
+### Phase 2 (small, polish-tier — when user asks)
 - Rivalry tracking deeper (h2h table per team-pair AND per-player, highlighted UI when teams meet often)
 - Coach philosophies surfaced in match commentary
 - Veteran decline arcs as narrative chips
 - Better match commentary (attribute-aware round-feed templates)
-- finals_history_ wiring for ChampionEra/Contender dynasty tiers
+- `finals_history_` wiring for ChampionEra/Contender dynasty tiers
 - Team eras tagging (read off trophy_history runs)
 
-### Phase 3 — deeper systems (multi-iteration each)
-- LAN pressure expansion (partially done via LAN nerves multiplier)
+### Phase 3 (deeper systems, multi-iteration each)
+- LAN pressure expansion (partially done via `lan_mod` multiplier)
 - Crowd/fan pressure model
-- Regional meta shifts + patch updates altering agent_priors
+- Regional meta shifts + patch updates altering `agent_priors`
 - Map veto strategies phase before BO3+ matches
-- Player loyalty traits + contract disputes
+- Player loyalty traits + contract disputes (beyond `Desire`)
 - Greatest matches ever / historical tournament pages
-- Real flag bitmaps (currently procedural)
 - Profile pictures / avatars
 - Awards reveal animations
+- Coach trades / market movement during the season
 
 ---
 

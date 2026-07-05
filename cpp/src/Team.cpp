@@ -76,6 +76,7 @@ ScoutPrefs random_scout_prefs() {
 
 Team::Team(std::string n, long long b, std::string r)
     : name(std::move(n)), budget(b), region(std::move(r)) {
+    id = next_entity_id();
     personality = random_personality();
     comp_identity = pick_comp_identity_from_personality(personality);
     target_comp = random_comp();
@@ -109,15 +110,19 @@ Team::Team(std::string n, long long b, std::string r)
     switch (personality) {
         case Personality::Aggressive:
             bias_pick({LogoShape::LightningBolt, LogoShape::Skull,
-                       LogoShape::Dragon, LogoShape::Flame, LogoShape::Sword});
+                       LogoShape::Dragon, LogoShape::Flame, LogoShape::Sword,
+                       LogoShape::Fangs, LogoShape::CrossedSwords,
+                       LogoShape::Cobra, LogoShape::Talon});
             break;
         case Personality::Tactical:
             bias_pick({LogoShape::Crosshair, LogoShape::Hexagon,
-                       LogoShape::Compass, LogoShape::Shield, LogoShape::Diamond});
+                       LogoShape::Compass, LogoShape::Shield, LogoShape::Diamond,
+                       LogoShape::Eye, LogoShape::Gear, LogoShape::Trident});
             break;
         case Personality::Budget:
             bias_pick({LogoShape::Triangle, LogoShape::Circle,
-                       LogoShape::Anchor, LogoShape::Mountain, LogoShape::Tree});
+                       LogoShape::Anchor, LogoShape::Mountain, LogoShape::Tree,
+                       LogoShape::Sunburst});
             break;
         case Personality::Balanced:
             // No bias — keep the uniform hash pick.
@@ -223,6 +228,98 @@ Team::Strategy classify_team_strategy(const Team& t) noexcept {
     if (bud <   400'000LL)                                        return Team::Strategy::BudgetRoster;
     if (avg_pot >= 80.0 && bud < 600'000LL)                       return Team::Strategy::TalentFarm;
     return Team::Strategy::Bridge;
+}
+
+// === WS-B team identity (B1) =============================================
+const char* brand_tag_name(BrandTag b) noexcept {
+    switch (b) {
+        case BrandTag::AggressiveEntryMerchants: return "Aggressive Entry Merchants";
+        case BrandTag::TacticalMasterminds:      return "Tactical Masterminds";
+        case BrandTag::AcademyPowerhouse:        return "Academy Powerhouse";
+        case BrandTag::WinNowSpenders:           return "Win-Now Spenders";
+        case BrandTag::MethodicalGrinders:       return "Methodical Grinders";
+        case BrandTag::DefensiveWall:            return "Defensive Wall";
+        case BrandTag::BalancedContenders:       return "Balanced Contenders";
+    }
+    return "?";
+}
+const char* brand_tag_blurb(BrandTag b) noexcept {
+    switch (b) {
+        case BrandTag::AggressiveEntryMerchants: return "Fast tempo, duelist-led, takes space early";
+        case BrandTag::TacticalMasterminds:      return "Methodical; mid-round reads win the map";
+        case BrandTag::AcademyPowerhouse:        return "Builds young talent into stars";
+        case BrandTag::WinNowSpenders:           return "Buys proven names for a title window";
+        case BrandTag::MethodicalGrinders:       return "Patient, disciplined, default-heavy";
+        case BrandTag::DefensiveWall:            return "Slow, sentinel-anchored, hard to break";
+        case BrandTag::BalancedContenders:       return "Well-rounded; adapts to the matchup";
+    }
+    return "";
+}
+
+TeamIdentity compute_team_identity(const Team& t) {
+    TeamIdentity id;
+    const CoachLean cl = t.coach_lean();   // neutral {0,0,0,0} when no coach bound
+
+    // --- aggression axis: 0 methodical .. 1 aggressive --------------------
+    double a = 0.5;
+    switch (t.personality) {
+        case Personality::Aggressive: a += 0.30; break;
+        case Personality::Tactical:   a -= 0.20; break;
+        case Personality::Budget:     a -= 0.05; break;
+        case Personality::Balanced:   break;
+    }
+    switch (t.comp_identity) {
+        case CompIdentity::AggressiveDive:    a += 0.18; break;
+        case CompIdentity::DoubleDuelistTeam: a += 0.25; break;
+        case CompIdentity::UtilityHeavy:      a -= 0.15; break;
+        case CompIdentity::StructuredMacro:   a -= 0.25; break;
+        default: break;
+    }
+    a += cl.risk_appetite * 0.15;   // coach archetype (already personality-derived)
+
+    int duel = 0, sent = 0, ros = 0;
+    double avg_age = 0.0;
+    for (auto& p : t.roster) {
+        if (!p) continue;
+        if (p->primary_role == Role::Duelist)  ++duel;
+        if (p->primary_role == Role::Sentinel) ++sent;
+        avg_age += p->age; ++ros;
+    }
+    if (ros > 0) { avg_age /= ros; a += (duel - sent) * 0.04; }
+    a += region_meta(t.region).aggression * config().region_identity_weight;  // capped region bias
+    id.aggression = clamp_v(a, 0.0, 1.0);
+
+    // --- dev_youth axis: 0 win-now .. 1 youth-first -----------------------
+    double y = 0.5;
+    switch (t.strategy) {
+        case Team::Strategy::Rebuilding:       y += 0.30; break;
+        case Team::Strategy::DevelopmentFocus: y += 0.28; break;
+        case Team::Strategy::TalentFarm:       y += 0.22; break;
+        case Team::Strategy::WinNow:           y -= 0.30; break;
+        case Team::Strategy::Contender:        y -= 0.20; break;
+        default: break;
+    }
+    y += cl.dev_focus * 0.20 + cl.youth_lean * 0.15;
+    if (ros > 0) y += clamp_v((26.0 - avg_age) / 10.0, -0.15, 0.20);  // young roster -> youth
+    id.dev_youth = clamp_v(y, 0.0, 1.0);
+
+    // --- preferred comp lean (from aggression) ---------------------------
+    if      (id.aggression >= 0.62) id.comp_lean = CompTag::DoubleDuelist;
+    else if (id.aggression <= 0.38) id.comp_lean = CompTag::DoubleSentinel;
+    else                            id.comp_lean = CompTag::DoubleInitiator;
+
+    // --- brand tag from the (aggression, dev_youth) quadrant -------------
+    const double a2 = id.aggression, y2 = id.dev_youth;
+    if      (y2 >= 0.60)  id.brand = BrandTag::AcademyPowerhouse;
+    else if (a2 >= 0.65)  id.brand = BrandTag::AggressiveEntryMerchants;
+    else if (a2 <= 0.35)  id.brand = (y2 <= 0.42 ? BrandTag::DefensiveWall
+                                                  : BrandTag::MethodicalGrinders);
+    else if (y2 <= 0.35)  id.brand = BrandTag::WinNowSpenders;
+    else if (a2 <= 0.48)  id.brand = BrandTag::TacticalMasterminds;
+    else                  id.brand = BrandTag::BalancedContenders;
+
+    id.user_chosen = false;
+    return id;
 }
 
 double team_import_appetite(const Team& t,
@@ -394,8 +491,10 @@ void seed_team_colors(Team& t) {
 double Team::ovr() const {
     if (roster.empty()) return 0.0;
     double s = 0.0;
-    for (auto& p : roster) s += p->ovr();
-    return s / roster.size();
+    int n = 0;
+    for (auto& p : roster) { if (!p) continue; s += p->ovr(); ++n; }
+    if (n == 0) return 0.0;
+    return s / n;
 }
 
 void Team::sign_player(const PlayerPtr& p, int years, int current_year) {
@@ -408,6 +507,15 @@ void Team::sign_player(const PlayerPtr& p, int years, int current_year) {
 void Team::sign_player(const PlayerPtr& p, int years, int current_year,
                        Role intended_role) {
     if (!p) return;
+    // De-dup guard (ROOT fix for "ghost" players): if p is ALREADY on this
+    // roster, never add a second copy. A duplicate slot is the root cause of
+    // ghosts — a later single-slot release_player removes one copy and flags
+    // team_name="Free Agent", leaving the OTHER copy on-roster but FA-flagged
+    // (years_left reads 0). Just re-sync the team flag and bail.
+    if (std::find(roster.begin(), roster.end(), p) != roster.end()) {
+        p->team_name = name;
+        return;
+    }
     if (roster.size() >= 7) return;
     // Caller invariant: a contract must always be at least 1 year long. We
     // clamp defensively here so a stray `years = 0` doesn't yield a same-year
@@ -422,14 +530,46 @@ void Team::sign_player(const PlayerPtr& p, int years, int current_year,
     // 2026/27/28 and is released at the end-of-2028 offseason via the
     // `exp_year <= year` gate in GameManager::run_end_of_year.
     p->contract_years = years;
+    // A fresh deal starts with NO promise / NO carried bonus. Detailed callers
+    // (GUI sign modal, AI poach) set these AFTER this returns; every other sign
+    // path (auto_fill, scouting) correctly leaves them cleared. This prevents a
+    // released-then-resigned player's stale starter-promise from souring a new
+    // org that never made one.
+    p->contract.signing_bonus_k  = 0;
+    p->contract.promised_starter = false;
+    p->contract.promised_role    = false;
+    p->contract.promise_active   = false;
+    // A move to a new org is a fresh start — clear any transfer request.
+    p->discontent         = 0.0;
+    p->transfer_requested = false;
     // Stamp the contract role. Role::Count means "use natural" — preserves
     // the legacy behavior so existing UI surfaces still work.
     p->contract_role = (intended_role == Role::Count)
                          ? p->primary_role : intended_role;
-    if (current_year > 0) {
-        p->contract.exp_year = current_year + years - 1;
+    // ROLE LOCK: sync the played role to the contracted role so every
+    // primary_role reader (match assignment, displays, role-need) honors the
+    // signing decision, and the monthly update_agent_pool drift can't silently
+    // move it. An off-role signing keeps the player here but they take the
+    // role_fit penalty at agent-selection time (attributes vs assigned role).
+    p->primary_role = p->contract_role;
+    // Always stamp a LIVE exp_year. Prefer the caller's current_year, but fall
+    // back to the global world year so paths that don't thread a year (the
+    // default-arg auto_fill_roster, the live-match viewer, tests) still produce
+    // a correct contract instead of leaving the ctor's placeholder (exp_year =
+    // years-1, which reads as "already expired" the moment the season is 2026+).
+    int sign_year = (current_year > 0) ? current_year : current_world_year();
+    if (sign_year > 0) {
+        p->contract.exp_year = sign_year + years - 1;
         p->bump_mood(name, -p->mood_for(name));
     }
+    // Anti-dynasty: a move to a NEW org resets org tenure + titles-with-org +
+    // restlessness (fresh start, fresh challenge). resign_player (staying) does
+    // NOT touch these, so a long-tenured core keeps accruing.
+    if (sign_year > 0) p->joined_year = sign_year;
+    p->tenure_years_at_org  = 0;
+    p->titles_with_org      = 0;
+    p->last_org_title_count = 0;
+    p->restlessness         = 0.0;
     // Strict invariant: every roster change must end with exactly one IGL
     // and one Flex among the starting 5 (when 5+ players are present).
     // This is the single point of enforcement so EVERY sign path stays
@@ -466,19 +606,26 @@ double igl_mental_score(const Player& p) {
           + at(a, Attr::DecisionMaking)  * 0.05) / 99.0;
 }
 
-// IGL-candidate score: mental composite × role bias. Controllers /
-// Initiators are the canonical IGL roles, Sentinels OK, Duelists
-// heavily penalised so DuelistIGLs only emerge when their MIND is
-// elite. (Hard veto is applied separately in enforce_one_igl using
-// the raw mental score before the role multiplier.)
+// IGL-candidate score: mental composite × role bias. INITIATORS are the
+// canonical IGL role in VCT (recon/info feeds the shot-caller's mid-round
+// read: FNS, Saadhak, ANGE1, Redgar, Boaster), Controllers next, Sentinels
+// close, Duelists heavily penalised so Duelist-IGLs only emerge when their
+// MIND is elite. Ordering mirrors Player.cpp::base_igl_chance_for_role so
+// spawn-mint and team re-election agree. (Hard veto is applied separately in
+// enforce_one_igl using the raw mental score before the role multiplier.)
 double igl_candidate_score(const Player& p) {
     double mental = igl_mental_score(p);
     double role_mult = 1.0;
     switch (p.primary_role) {
-        case Role::Controller: role_mult = 1.20; break;
-        case Role::Initiator:  role_mult = 1.15; break;
-        case Role::Sentinel:   role_mult = 1.00; break;
-        case Role::Duelist:    role_mult = 0.35; break;
+        // Flat among the three leader roles — the per-team election is
+        // winner-take-all, so any mult gap amplifies hard. Initiator's ~43%
+        // player-facing plurality comes from its higher SPAWN base
+        // (base_igl_chance_for_role), not a mult edge here. Duelist stays
+        // heavily vetoed.
+        case Role::Initiator:  role_mult = 1.13; break;
+        case Role::Controller: role_mult = 1.13; break;
+        case Role::Sentinel:   role_mult = 1.13; break;
+        case Role::Duelist:    role_mult = 0.30; break;
         default:               role_mult = 1.00; break;
     }
     return mental * role_mult;
@@ -567,8 +714,45 @@ void Team::enforce_one_igl() {
         return;
     }
 
-    if (igl_idxs.size() == 1) return;  // exactly one — no-op (user does not
-                                       // want stat-thrash from re-electing).
+    if (igl_idxs.size() == 1) {
+        // Normally a no-op — re-electing a legitimate IGL every season would
+        // stat-thrash. EXCEPTION: a lone DUELIST IGL who fails the "elite
+        // mind" veto (mental < 0.80) is a design-illegal holdover (e.g. a
+        // spawn-minted Duelist-IGL who got signed). If a clearly better
+        // non-Duelist starter exists, demote the Duelist and promote them so
+        // the player-facing IGL distribution matches VCT (initiators lead,
+        // Duelist-IGLs are rare). Fires ONLY for this pathology — real
+        // Controller/Initiator/Sentinel IGLs are never re-thrashed.
+        std::size_t cur = igl_idxs.front();
+        auto& curp = roster[cur];
+        if (curp && curp->primary_role == Role::Duelist &&
+            igl_mental_score(*curp) < 0.80) {
+            std::size_t alt = starters;
+            double alt_score = -1.0;
+            for (std::size_t i = 0; i < starters; ++i) {
+                if (!roster[i] || i == cur) continue;
+                if (roster[i]->primary_role == Role::Duelist) continue;
+                double s = igl_candidate_score(*roster[i]);
+                if (s > alt_score) { alt_score = s; alt = i; }
+            }
+            if (alt < starters &&
+                igl_mental_score(*roster[alt]) >= 0.55 &&
+                alt_score > igl_candidate_score(*curp)) {
+                curp->is_igl = false;
+                apply_igl_stat_shift(*curp, -1);
+                curp->update_agent_pool();
+                auto& np = roster[alt];
+                np->is_igl = true;
+                apply_igl_stat_shift(*np, +1);
+                np->tend_play_aggressive = rng().irange(20, 80);
+                np->tend_lurk_vs_execute = rng().irange(20, 80);
+                np->tend_vocal           = rng().irange(40, 95);
+                np->tend_adaptive        = rng().irange(30, 90);
+                np->update_agent_pool();
+            }
+        }
+        return;
+    }
 
     // 2+ IGLs in the starting 5 — keep the one with the highest
     // igl_candidate_score, demote the rest (revert stat shift).
@@ -645,32 +829,293 @@ void Team::enforce_one_flex() {
 
 void Team::release_player(const PlayerPtr& p) {
     if (!p) return;
-    auto it = std::find(roster.begin(), roster.end(), p);
-    if (it != roster.end()) {
-        roster.erase(it);
+    // Remove ALL occurrences (a stray duplicate slot must not survive as a
+    // ghost — see the de-dup guard in sign_player). erase-remove is O(n).
+    std::size_t before = roster.size();
+    roster.erase(std::remove(roster.begin(), roster.end(), p), roster.end());
+    if (roster.size() != before) {
         p->team_name = "Free Agent";
         // Bump the cuts-this-year counter so update_org_memory can score
         // the team's stability_culture this year. Reset to 0 inside
         // update_org_memory after the metric delta has been applied.
         ++cuts_this_year_;
+        // erase() can shift a bench player into the starting 5 — re-elect the
+        // IGL/Flex so the new starting 5 stays legal (latent bug: this was
+        // missing, so releasing a starter could leave 0 or 2 IGLs).
+        enforce_one_igl();
+        enforce_one_flex();
     }
 }
 
+bool Team::swap_roster_slots(const PlayerPtr& benchee, const PlayerPtr& starter) {
+    if (!benchee || !starter || benchee == starter) return false;
+    int bi = -1, si = -1;
+    for (int i = 0; i < static_cast<int>(roster.size()); ++i) {
+        if (roster[i] == benchee) bi = i;
+        if (roster[i] == starter) si = i;
+    }
+    if (bi < 0 || si < 0) return false;
+    const int line = static_cast<int>(std::min<std::size_t>(5, roster.size()));
+    bool b_starts = (bi < line), s_starts = (si < line);
+    // Must be one starter + one bench (opposite sides of the line).
+    if (b_starts == s_starts) return false;
+    std::iter_swap(roster.begin() + bi, roster.begin() + si);
+    // Re-elect IGL/Flex for the new starting 5 (reverts/applies the IGL stat
+    // shift correctly when the IGL changes). The benched player stays rostered
+    // and paid — total_payroll_k sums the whole roster.
+    enforce_one_igl();
+    enforce_one_flex();
+    return true;
+}
+
+void Team::optimize_starting_five(int current_year) {
+    (void)current_year;
+    if (roster.size() <= 5) return;   // no bench, nothing to optimize
+    const int line = 5;
+
+    // "How good RIGHT NOW" — current OVR + youth upside + recent form − a small
+    // veteran tax. The head coach's archetype tilts it: a development-minded
+    // coach values a young prospect's ceiling more (more willing to START them
+    // over a marginally-better journeyman), and a risk-taking coach chases hot
+    // form harder. A VeteranMentor/Pragmatist does the opposite.
+    const CoachLean cl = coach_lean();
+    auto value_now = [&](const PlayerPtr& p) -> double {
+        if (!p) return -1e9;
+        double v = p->ovr();
+        double upside = static_cast<double>(p->potential) - p->ovr();
+        if (p->age <= 24) v += upside * 0.30;
+        if (p->age <= 23) v += cl.youth_lean * std::max(0.0, upside) * 0.25;
+        v += (p->avg_match_rating() - 1.0) * (8.0 + cl.risk_appetite * 3.0);
+        if (p->age >= 30) v -= 5.0;
+        return v;
+    };
+
+    // For each bench reserve, find the WEAKEST starter it can cover (same role,
+    // or a strong cross-role flex fit) and bench-swap if the reserve is clearly
+    // better. Batch against a snapshot, then apply — never mutate mid-scan.
+    std::vector<std::pair<PlayerPtr, PlayerPtr>> swaps;   // {starter_out, reserve_in}
+    std::vector<bool> taken(roster.size(), false);
+    for (std::size_t bi = line; bi < roster.size(); ++bi) {
+        const auto& res = roster[bi];
+        if (!res) continue;
+        // Require a real form sample before promoting a reserve over a starter.
+        if (res->season_matches < 6 && res->career_matches < 20) continue;
+        int worst = -1; double worst_val = 1e9;
+        for (int si = 0; si < line && si < static_cast<int>(roster.size()); ++si) {
+            if (taken[si] || !roster[si]) continue;
+            const auto& st = roster[si];
+            bool covers = (st->primary_role == res->primary_role)
+                       || (res->role_fit_score(st->primary_role) >= 0.80);
+            if (!covers) continue;
+            // Protect genuine young prospects — give them runway, don't bench
+            // them for a journeyman reserve.
+            if (st->age <= 21 && st->potential >= 75) continue;
+            double sv = value_now(st);
+            if (sv < worst_val) { worst_val = sv; worst = si; }
+        }
+        if (worst < 0) continue;
+        // Hysteresis margin (5.0): the reserve must be CLEARLY better, not just
+        // marginally. Called monthly mid-season, so a tight margin would thrash
+        // the lineup (and re-elect IGLs, burning RNG) on normal form swings; 5.0
+        // absorbs 1-2 noisy months and only swaps on a real, sustained edge.
+        if (value_now(res) > worst_val + 5.0) {
+            swaps.emplace_back(roster[worst], res);
+            taken[worst] = true;
+        }
+    }
+    for (auto& sw : swaps) swap_roster_slots(sw.first, sw.second);
+}
+
+// === FM-depth roster intelligence ==========================================
+
+RoleNeed Team::compute_role_need() const {
+    RoleNeed rn;
+    const std::size_t starters = std::min<std::size_t>(5, roster.size());
+    for (std::size_t i = 0; i < starters; ++i) {
+        if (!roster[i]) continue;
+        int r = static_cast<int>(roster[i]->primary_role);
+        if (r < 0 || r >= 4) continue;
+        rn.count[r] += 1;
+        double o = roster[i]->ovr();
+        if (o > rn.best_ovr[r]) rn.best_ovr[r] = o;
+    }
+    for (int r = 0; r < 4; ++r) {
+        double n;
+        if (rn.count[r] == 0) {
+            n = 1.0;                                    // full hole — no coverage
+        } else {
+            // Covered but maybe weak: a role whose best starter is well under a
+            // ~72 bar registers a partial need; capped at 0.60 so a real hole
+            // always outranks a merely-thin role.
+            double weak = (72.0 - rn.best_ovr[r]) / 45.0;
+            n = std::min(0.60, std::max(0.0, weak));
+        }
+        rn.need[r] = n;
+        if (n > rn.most_need_score) {
+            rn.most_need_score = n;
+            rn.most_needed = static_cast<Role>(r);
+        }
+    }
+    return rn;
+}
+
+CoachLean Team::coach_lean() const {
+    CoachLean cl;
+    if (!head_coach) return cl;   // neutral when no coach is bound
+    // {youth_lean, risk_appetite, finance_lean, dev_focus}. finance_lean>0 pushes
+    // the org to SPEND (win-now), <0 keeps it frugal; dev_focus>0 weights youth
+    // development. These let a DevelopmentCoach build/spend differently from a
+    // Pragmatist across roster, development AND finance.
+    switch (head_coach->personality) {
+        case CoachPersonality::DevelopmentCoach:    cl = {+0.80, +0.30, -0.10, +0.90}; break;
+        case CoachPersonality::HarshRebuilder:      cl = {+0.55, +0.40, -0.20, +0.50}; break;
+        case CoachPersonality::BudgetBalancer:      cl = {+0.45, +0.00, -0.70, +0.40}; break;
+        case CoachPersonality::Innovator:           cl = {+0.30, +0.60, +0.20, +0.20}; break;
+        case CoachPersonality::AggressiveRiskTaker: cl = {+0.20, +0.80, +0.50, +0.00}; break;
+        case CoachPersonality::EntryLover:          cl = {+0.20, +0.35, +0.30, +0.10}; break;
+        case CoachPersonality::AnalyticsHeavy:      cl = {+0.15, -0.20, -0.20, +0.30}; break;
+        case CoachPersonality::Motivator:           cl = {+0.10, +0.10, +0.10, +0.20}; break;
+        case CoachPersonality::PlayerFocused:       cl = {+0.10, +0.00, +0.00, +0.20}; break;
+        case CoachPersonality::EmotionDriven:       cl = {+0.00, +0.50, +0.20, +0.00}; break;
+        case CoachPersonality::TacticalGenius:      cl = {-0.10, -0.10, +0.10, +0.10}; break;
+        case CoachPersonality::Disciplinarian:      cl = {-0.20, -0.30, +0.00, +0.00}; break;
+        case CoachPersonality::DefensiveAnchor:     cl = {-0.20, -0.40, -0.10, +0.10}; break;
+        case CoachPersonality::StructuredMacro:     cl = {-0.20, -0.50, -0.30, +0.20}; break;
+        case CoachPersonality::Pragmatist:          cl = {-0.50, -0.20, +0.60, -0.30}; break;
+        case CoachPersonality::VeteranMentor:       cl = {-0.70, -0.30, +0.30, -0.40}; break;
+    }
+    return cl;
+}
+
+double Team::score_scout_target(const Player& cand, const RoleNeed& need,
+                                int current_year, double sharpness,
+                                Role* out_fill_role) const {
+    (void)current_year;
+    int r = static_cast<int>(cand.primary_role);
+    if (r < 0 || r >= 4) return 0.0;
+
+    // (a) GENUINE NEED. Only scout for a role that is an actual hole/weakness.
+    // If the candidate's natural role isn't a need, allow a STRONG cross-role
+    // flex to plug the single most-needed role instead.
+    double role_need = need.need[r];
+    if (role_need < 0.15) {
+        if (need.most_needed == Role::Count) return 0.0;
+        int mr = static_cast<int>(need.most_needed);
+        if (need.need[mr] >= 0.15 && cand.role_fit_score(need.most_needed) >= 0.80) {
+            r = mr; role_need = need.need[mr];
+        } else {
+            return 0.0;   // no hole this candidate can honestly fill
+        }
+    }
+    // `r` is now the role this candidate would fill. Report it so the caller can
+    // PIN the signing to it (a cross-role flex scouted for the most-needed role
+    // must be contracted to that role, not their natural one).
+    if (out_fill_role) *out_fill_role = static_cast<Role>(r);
+
+    // (b) ROLE FIT — never sign a genuine mismatch into a need.
+    double rf = cand.role_fit_score(static_cast<Role>(r));
+    if (rf < 0.62) return 0.0;
+
+    // (c) REAL UPGRADE over the incumbent. A full hole (no starter in the role)
+    // clears a low floor; a thin role must be beaten by more than noise.
+    bool rebuild = (strategy == Strategy::Rebuilding ||
+                    strategy == Strategy::DevelopmentFocus ||
+                    strategy == Strategy::TalentFarm);
+    // WS-A INC-5: the head scout's PROJECTION sets how confidently this club
+    // backs a candidate's CEILING vs current ability. 1.0 = neutral / no scout;
+    // a sharp projector (~1.15) values potential, a weak one (~0.85) discounts it.
+    double scout_conf = 0.85 + 0.30 * (head_scout ? head_scout->projection / 99.0 : 0.5);
+    double cand_val = rebuild ? (cand.ovr() * 0.55 +
+                                 static_cast<double>(cand.potential) * 0.45 * scout_conf)
+                              : cand.ovr();
+    // The hole floor is CONTEXTUAL to squad strength: a 46-OVR scrub fills a hole
+    // on a weak rebuild side but not on a 75-OVR contender. Anchor the floor to
+    // the team's average starter OVR (minus a slack), with a 45 hard minimum.
+    double team_str = 0.0; int sc_n = 0;
+    for (std::size_t i = 0; i < std::min<std::size_t>(5, roster.size()); ++i)
+        if (roster[i]) { team_str += roster[i]->ovr(); ++sc_n; }
+    team_str = (sc_n > 0) ? team_str / sc_n : 50.0;
+    double bar = (need.count[r] == 0) ? std::max(45.0, team_str - 18.0)
+                                      : (need.best_ovr[r] - 4.0);
+    double upgrade = cand_val - bar;
+    // P3.1: the upgrade bar scales INVERSELY with manager sharpness (difficulty).
+    // sharpness 1.0 -> bar 1.0 (legacy); harder (>1.0) lowers it so AI poaches
+    // marginal upgrades decisively; easier (<1.0) raises it so AI lets them slide.
+    if (upgrade <= (2.0 - sharpness)) return 0.0;   // not a real upgrade — leave the slot open
+
+    // (d) AFFORDABILITY (sign_player does NOT debit budget; the caller will).
+    if (cand.get_transfer_value() > std::max<long long>(0, budget)) return 0.0;
+
+    // (e) STATURE / REPUTATION reach (FM-style). A club only seriously pursues a
+    // player whose FAME is within reach of the club's own standing — a star signs for
+    // a peer club, not for whoever asks, so a mid/low side won't chase a big name (and
+    // a tier-3 side certainly won't scout a tier-1 star). Club stature is scaled onto
+    // the SAME 1..10000 axis as player reputation (prestige-dominant so it spreads
+    // across a division), and the reach is deliberately tight so a strong player draws
+    // a realistic handful of comparable suitors, not every team in the league. A
+    // DECLINING player's reputation drifts down over seasons, opening him to smaller
+    // clubs again.
+    {
+        double club_rep = prestige * 85.0 + static_cast<int>(wealth_tier) * 500.0 + 600.0;
+        if (club_rep > 10000.0) club_rep = 10000.0;
+        double reach = club_rep + 500.0 + (sharpness - 1.0) * 500.0;
+        if (static_cast<double>(cand.reputation) > reach) return 0.0;
+    }
+
+    // === Composite — only reached for a genuine, affordable upgrade =========
+    double score = role_need * 40.0;   // bigger holes first
+    score += rf * 20.0;
+    score += upgrade * 1.5;
+    score += cand.ovr() * 0.6;
+
+    if (rebuild) {
+        score += std::max(0.0, static_cast<double>(cand.potential) - cand.ovr()) * 0.8 * scout_conf;
+        score += std::max(0.0, 24.0 - cand.age) * 1.2;
+    } else if (strategy == Strategy::Contender || strategy == Strategy::WinNow) {
+        score += (cand.avg_match_rating() - 1.0) * 30.0;
+        score += std::max(0.0, cand.ovr() - 70.0) * 1.5;
+    }
+
+    const CoachLean cl = coach_lean();
+    if (cl.youth_lean != 0.0) {
+        score += cl.youth_lean * std::max(0.0, static_cast<double>(cand.potential) - cand.ovr()) * 0.5;
+        score += cl.youth_lean * std::max(0.0, 24.0 - cand.age) * 0.8;
+    }
+    // WS-B INC-2: the USER's CHOSEN club philosophy biases their AI auto-decisions
+    // toward youth (or away). Guarded by user_chosen so AI clubs (emergent
+    // identity) don't double-dip with the coach_lean youth term above.
+    if (identity.user_chosen) {
+        double idy = identity.dev_youth - 0.5;
+        score += idy * std::max(0.0, static_cast<double>(cand.potential) - cand.ovr()) * 0.4;
+        score += idy * std::max(0.0, 24.0 - cand.age) * 0.6;
+    }
+    double cm = archetype_profile(cand.archetype).consistency_mod;  // ±0.12
+    // Risk-takers reward VOLATILITY (negative consistency_mod), but a gamble is
+    // only worth it for a real ceiling — scale the bonus by the candidate's
+    // upside so a high-floor low-ceiling vet doesn't win on volatility alone.
+    double risk_upside = std::max(0.0, static_cast<double>(cand.potential) - cand.ovr());
+    score += cl.risk_appetite * (-cm) * (40.0 + risk_upside * 0.5);
+
+    return std::max(0.0, score);
+}
+
 int Team::total_payroll_k() const {
-    int s = 0;
-    for (auto& p : roster) s += p->contract.amount_k;
+    long long s = 0;
+    for (auto& p : roster) { if (!p) continue; s += p->contract.amount_k; }
     if (head_coach) s += head_coach->salary_k;
-    return s;
+    if (head_scout) s += head_scout->salary_k;   // WS-A: scout is on the books too
+    if (head_analyst) s += head_analyst->salary_k;   // Match-Prep: analyst too
+    return static_cast<int>(s);
 }
 void Team::pay_payroll(int year) {
     long long pay = static_cast<long long>(total_payroll_k()) * 1000LL;
     budget -= pay;
-    for (auto& p : roster) p->salary_log.emplace_back(year, p->contract.amount_k);
+    for (auto& p : roster) { if (!p) continue; p->salary_log.emplace_back(year, p->contract.amount_k); }
 }
 
 void Team::scout_top_fas(std::vector<PlayerPtr>& top_fas, int current_year) {
     std::array<int, static_cast<std::size_t>(Role::Count)> have{};
-    for (auto& p : roster) have[static_cast<std::size_t>(p->primary_role)]++;
+    for (auto& p : roster) { if (!p) continue; have[static_cast<std::size_t>(p->primary_role)]++; }
     std::vector<Role> missing;
     for (std::size_t i = 0; i < static_cast<std::size_t>(Role::Count); ++i) {
         int need = target_comp.need[i] - have[i];
@@ -685,7 +1130,7 @@ void Team::scout_top_fas(std::vector<PlayerPtr>& top_fas, int current_year) {
             if (p->team_name != "Free Agent" || p->primary_role != target_role) continue;
             if (p->region != region) {
                 int imports = 0;
-                for (auto& x : roster) if (x->region != region) imports++;
+                for (auto& x : roster) if (x && x->region != region) imports++;
                 if (imports >= config().max_imports) continue;
             }
             double score = 0.0;
@@ -845,7 +1290,20 @@ void Team::auto_fill_roster(std::vector<PlayerPtr>& free_agents, int current_yea
         if (wanted_role != Role::Count) {
             std::vector<PlayerPtr> role_fas;
             for (auto& p : valid) if (p->primary_role == wanted_role) role_fas.push_back(p);
-            if (!role_fas.empty()) valid = std::move(role_fas);
+            if (role_fas.empty()) {
+                // NO natural on-role FA. The old code silently kept the
+                // any-role pool here and signed the best player REGARDLESS of
+                // role — the "fills a 2nd Duelist when it needs a Sentinel" bug.
+                // Instead accept only a strong CROSS-ROLE FLEX who actually fits
+                // the role (role_fit_score >= 0.80, our compatibility metric).
+                for (auto& p : valid)
+                    if (p->role_fit_score(wanted_role) >= 0.80) role_fas.push_back(p);
+            }
+            // If still nobody fits the NEEDED role, leave the slot open for next
+            // year rather than fill it with the wrong role. (The roster-fill
+            // backstop below still guarantees a legal 5 in the pathological case.)
+            if (role_fas.empty()) return false;
+            valid = std::move(role_fas);
         }
         if (require_flex_overlay) {
             std::vector<PlayerPtr> flex_fas;
@@ -873,6 +1331,10 @@ void Team::auto_fill_roster(std::vector<PlayerPtr>& free_agents, int current_yea
             // prior positive synergy with any current roster member).
             // Precompute into a parallel vector then sort affordable by
             // it — keeps the rest of the desire-aware loop intact.
+            // Coach archetype lean, computed ONCE — tilts WHO the org signs
+            // (youth/ceiling vs proven, gamble vs consistency). Until now
+            // coaches never touched signings, only match synergy + player dev.
+            const CoachLean cl_fill = coach_lean();
             std::vector<double> composite;
             composite.reserve(affordable.size());
             for (const auto& cand : affordable) {
@@ -899,6 +1361,17 @@ void Team::auto_fill_roster(std::vector<PlayerPtr>& free_agents, int current_yea
                     }
                 }
                 s += risk_bias;
+
+                // Coach archetype lean (see cl_fill above). A DevelopmentCoach
+                // nudges the board toward high-ceiling youngsters; a Pragmatist/
+                // VeteranMentor toward proven players; a risk-taking coach
+                // rewards volatility (negative consistency_mod).
+                if (cl_fill.youth_lean != 0.0) {
+                    s += cl_fill.youth_lean *
+                         std::max(0.0, static_cast<double>(cand->potential) - cand->ovr()) * 0.20;
+                    s += cl_fill.youth_lean * std::max(0.0, 24.0 - cand->age) * 0.6;
+                }
+                s += cl_fill.risk_appetite * (-cm) * 50.0;
 
                 // Chemistry reunite bonus: if this FA has positive prior
                 // chemistry (>= +0.5) with anyone currently on our roster,
@@ -957,7 +1430,16 @@ void Team::auto_fill_roster(std::vector<PlayerPtr>& free_agents, int current_yea
         if (!best) return false;
 
         budget -= best->get_transfer_value();
-        sign_player(best, decide_contract_years(*best, current_year), current_year);
+        // PIN the signing to the role this slot is filling (wanted_role). For an
+        // on-role natural signing this equals the player's primary_role (no-op);
+        // for a CROSS-ROLE flex accepted above (role_fit>=0.80) it pins the player
+        // to the needed role so the hole actually closes — without this the 3-arg
+        // sign reverted them to their natural role and the hole reopened (the
+        // "signs a 2nd Duelist when it needs a Sentinel" phantom-fill bug). For
+        // the wildcard slots wanted_role==Role::Count, which sign_player maps back
+        // to the natural role, preserving the legacy flex/best-remaining behaviour.
+        sign_player(best, decide_contract_years(*best, current_year), current_year,
+                    wanted_role);
         return true;
     };
 
@@ -1018,6 +1500,7 @@ CompTag Team::pick_best_comp_for_roster() const {
     double pos = 0, clutch = 0, adapt = 0;
     int n = 0;
     for (auto& p : roster) {
+        if (!p) continue;
         agg    += at(p->attributes, Attr::Aggressiveness);
         entry  += at(p->attributes, Attr::Entry);
         aim    += at(p->attributes, Attr::Aim);
@@ -1114,6 +1597,21 @@ CompTag decide_desired_tag(const Team& team,
             break;
     }
 
+    // WS-B: nudge toward the team's IDENTITY comp lean. Only for the non-forcing
+    // identities (Balanced / FlexExperimental) so it never fights a hard comp
+    // identity above; low probability; a user-CHOSEN club leans a touch harder
+    // than an emergent one. Comp choice only feeds the clamped comp_bonus, so
+    // this is purely stylistic and cannot move the KD/dynasty balance. The
+    // in-series adaptation below can still react off it after a loss.
+    if (team.comp_identity == CompIdentity::Balanced ||
+        team.comp_identity == CompIdentity::FlexExperimental) {
+        CompTag lean = team.identity.comp_lean;
+        if (lean != desired &&
+            rng().chance(team.identity.user_chosen ? 0.35 : 0.20)) {
+            desired = lean;
+        }
+    }
+
     // In-series adaptation. We only consider rows from the same `is_team1`
     // perspective for OUR comp & win record.
     if (prior && !prior->empty()) {
@@ -1193,8 +1691,92 @@ Team::ResolvedTeam Team::build_round_selection(
     ResolvedTeam out;
     if (roster.size() < 5) return out;
 
+    // === FULL agent comp override (Strategy tab) ========================
+    // The user picked the exact 5 agents for this map; assign the starting 5
+    // to them by best fit (on-role preferred). Takes precedence over the
+    // comp-tag override and the auto picker. AI teams never set this.
+    {
+        auto aov = agent_override.find(map.name);
+        if (aov != agent_override.end()) {
+            std::vector<const Agent*> chosen;
+            std::unordered_set<std::string> seen;
+            for (auto& nm : aov->second) {
+                const Agent* a = find_agent_by_name(nm);
+                if (a && !seen.count(a->name)) { chosen.push_back(a); seen.insert(a->name); }
+            }
+            if (chosen.size() == 5) {
+                std::vector<PlayerPtr> ps(roster.begin(), roster.begin() + 5);
+                std::vector<bool> used(5, false);
+                std::array<int, static_cast<std::size_t>(Role::Count)> rolecount{};
+                double total = 0.0;
+                for (auto* a : chosen) {
+                    int bi = -1; double bs = -1e18;
+                    for (int i = 0; i < 5; ++i) {
+                        if (used[i]) continue;
+                        double r = static_cast<double>(ps[i]->get_rating(*a, map));
+                        // Prefer the most ROLE-COMPATIBLE player for this agent
+                        // (on-role gets the full +25; a compatible flex a partial
+                        // bonus) instead of a binary on-role-only +25.
+                        r += 25.0 * ps[i]->role_fit_score(a->role);
+                        if (r > bs) { bs = r; bi = i; }
+                    }
+                    if (bi < 0) continue;
+                    used[bi] = true;
+                    out.chosen_agents[ps[bi].get()] = a;
+                    double rr = static_cast<double>(ps[bi]->get_rating(*a, map));
+                    // Smooth compatibility penalty (was a flat 0.85 for any
+                    // off-role): an ~80% flex barely dinged, a true mismatch ~0.78.
+                    rr *= role_fit_penalty_mult(ps[bi]->role_fit_score(a->role));
+                    total += rr;
+                    rolecount[static_cast<std::size_t>(a->role)]++;
+                }
+                CompPlan plan; plan.need = rolecount;
+                out.chosen_tag = comp_tag_of(plan);
+                out.team_ovr = total / 5.0;
+                return out;
+            }
+        }
+    }
+
     // === 1. Decide desired comp tag for THIS map ========================
     CompTag desired_tag = decide_desired_tag(*this, map, prior_results, is_team1);
+    // Manual per-map comp override (set by the user via the Strategy tab).
+    // Absent for this map => keep the engine's auto pick.
+    auto ov = comp_override.find(map.name);
+    if (ov != comp_override.end()) {
+        desired_tag = ov->second;
+    } else {
+        // Role-realism fix: the auto comp is chosen from map preference / comp
+        // identity / in-series adaptation WITHOUT consulting the starting 5's
+        // actual roles. If it doubles a role the squad does NOT field two of,
+        // a signed player (e.g. a Sentinel) gets shoved off-role to satisfy a
+        // comp the roster can't field. Only when that mismatch exists, retarget
+        // the comp to double the role the roster genuinely over-supplies (by
+        // pigeonhole, 5 players over 4 roles always over-supplies one), so the
+        // starting 5 plays on-role. Tactical variety is preserved whenever the
+        // roster CAN field the auto pick. comp only feeds a clamped comp_bonus,
+        // so this shifts role realism, not the KD/dynasty balance.
+        int rc[4] = {0, 0, 0, 0};
+        const std::size_t ns = std::min<std::size_t>(5, roster.size());
+        for (std::size_t i = 0; i < ns; ++i)
+            if (roster[i]) {
+                int rr = static_cast<int>(roster[i]->primary_role);
+                if (rr >= 0 && rr < 4) ++rc[rr];
+            }
+        const CompPlan& cur = comp_by_tag(desired_tag);
+        int dbl = -1;
+        for (int r = 0; r < 4; ++r) if (cur.need[r] >= 2) { dbl = r; break; }
+        if (dbl >= 0 && rc[dbl] < 2) {
+            int best_r = -1, best_n = 1;
+            for (int r = 0; r < 4; ++r) if (rc[r] > best_n) { best_n = rc[r]; best_r = r; }
+            if (best_r >= 0) {
+                CompPlan want;
+                want.need[0] = want.need[1] = want.need[2] = want.need[3] = 1;
+                want.need[best_r] = 2;
+                desired_tag = comp_tag_of(want);
+            }
+        }
+    }
     out.chosen_tag = desired_tag;
     const CompPlan& plan = plan_for(desired_tag);
 
@@ -1223,6 +1805,17 @@ Team::ResolvedTeam Team::build_round_selection(
             it = unassigned_p.erase(it);
         } else { ++it; }
     }
+    // Role-realism fix: whoever is still unassigned after Phase A must take a
+    // (necessarily off-natural) slot. Float the DESIGNATED Flex to the front so
+    // the player whose identity is to flex picks up that off-role slot first,
+    // instead of whoever happened to be left in roster order. The is_flex flag
+    // was previously enforced on the roster/UI but never consumed by the picker.
+    std::stable_sort(unassigned_p.begin(), unassigned_p.end(),
+                     [](const PlayerPtr& a, const PlayerPtr& b) {
+                         int af = (a && a->is_flex) ? 1 : 0;
+                         int bf = (b && b->is_flex) ? 1 : 0;
+                         return af > bf;
+                     });
     // Phase B: flex players use their pool's last entry as a hint.
     for (auto it = unassigned_p.begin(); it != unassigned_p.end();) {
         if (!(*it)->agent_pool.empty()) {
@@ -1338,8 +1931,35 @@ Team::ResolvedTeam Team::build_round_selection(
         }
         out.chosen_agents[p.get()] = best_a;
         picked_agents.insert(best_a->name);
-        double rating = best_rating_int;
-        if (best_off_role) rating *= 0.85;
+        // COMPATIBILITY-DRIVEN off-role penalty (was a flat 0.85 whenever the
+        // agent wasn't pooled): scale by how well the player actually fits the
+        // TARGET role. On-role (tr == primary) -> role_fit_score 1.0 -> no
+        // penalty; an ~80%-compatible flex -> ~0.96 (barely dinged); a true
+        // mismatch (duelist on controller) -> ~0.78. (void)best_off_role kept
+        // only so the UI plumbing that reads it still compiles.
+        (void)best_off_role;
+        // AGENT-SPECIFIC compatibility: a forced off-role flex is judged on the
+        // SPECIFIC agent handed to the player, not just the generic role. We take
+        // the MAX of the role profile and the chosen agent's fit, so a Controller
+        // covering Sova/Killjoy (agents keyed on Utility/GameSense/Anchor, which a
+        // Controller has) is only lightly dinged even though the generic Initiator/
+        // Sentinel role profile reads as a poor fit — while a true mismatch (a
+        // Duelist on a util Sentinel) stays near the 0.78 floor. Bounded: the max
+        // never penalizes MORE than the role-only value did, so balance only nudges
+        // in the realism direction. On-role tr==primary keeps role_fit_score==1.0.
+        double fit = p->role_fit_score(tr);
+        if (best_a) {
+            // CAP the agent-fit credit: it can lift the penalty input by at most
+            // kFlexCreditCap above the generic role fit. A natural flex (Controller
+            // -> Killjoy/Sova) keeps most of its credit, but the BEST flexers don't
+            // get an unbounded buff — uncapped, that lifted the intl-KD ceiling
+            // ~+0.1 (a generational flexer turned near-untouchable). Tuned to keep
+            // flexes pro-realistic while holding internationals tight.
+            constexpr double kFlexCreditCap = 0.12;
+            double agent_fit = p->agent_fit_score(*best_a);
+            fit = std::max(fit, std::min(agent_fit, fit + kFlexCreditCap));
+        }
+        double rating = best_rating_int * role_fit_penalty_mult(fit);
         total += rating;
     }
     out.team_ovr = total / 5.0;
@@ -1347,7 +1967,13 @@ Team::ResolvedTeam Team::build_round_selection(
 }
 
 void Team::save_history(int year) {
-    history.push_back({year, wins, losses});
+    // Idempotent per year: overwrite the latest entry if it's already this
+    // year (avoids duplicate-year rows + unbounded growth on a re-run).
+    if (!history.empty() && history.back().year == year) {
+        history.back() = {year, wins, losses};
+    } else {
+        history.push_back({year, wins, losses});
+    }
 }
 
 void Team::ai_manage_roster(std::vector<PlayerPtr>& free_agents, int current_year) {
@@ -1609,6 +2235,13 @@ void Team::ai_full_offseason_pass(std::vector<PlayerPtr>& free_agents,
         }
 
         if (best_upgrade) {
+            // Future-finance discipline (A3): only commit the upgrade if the new
+            // wage fits the wage envelope / insolvency floor. A club near its
+            // ceiling rides with its incumbent rather than overspending. The
+            // mandatory cascade-fill (Stage 3) stays UNGATED so rosters never
+            // drop below 5. (AI-only path — the user's offseason isn't auto-run.)
+            int up_wage_k = best_upgrade->gen_contract(current_year, false, false, this).amount_k;
+            if (!within_wage_envelope(up_wage_k, 0)) continue;  // can't responsibly afford it
             ++upgrades_attempted;
             // Commit cut+replace
             char buf[260];
@@ -1690,7 +2323,10 @@ void Team::ai_full_offseason_pass(std::vector<PlayerPtr>& free_agents,
         if (bench_pick) {
             int ask_k = bench_pick->gen_contract(current_year, false, false, this).amount_k;
             int yrs = std::max(1, decide_contract_years(*bench_pick, current_year) - 1);
-            if (bench_pick->accepts_resign_offer(ask_k, yrs, *this)) {
+            // Bench depth is discretionary — only add it within the wage envelope
+            // (A3). A stretched club skips the luxury reserve and banks the cash.
+            if (bench_pick->accepts_resign_offer(ask_k, yrs, *this)
+                && within_wage_envelope(ask_k, 0)) {
                 char buf[220];
                 std::snprintf(buf, sizeof(buf),
                     "[OFFSEASON GM] Bench depth: signed %s (%s, %d OVR / %d POT) for %dY at $%dK.",
@@ -1702,6 +2338,29 @@ void Team::ai_full_offseason_pass(std::vector<PlayerPtr>& free_agents,
                 budget -= static_cast<long long>(ask_k) * 1000LL;
                 bench_pick->contract.amount_k = ask_k;
                 sign_player(bench_pick, yrs, current_year);
+            }
+        }
+    }
+
+    // ===== Stage 4.5: Merit starting 5 ===================================
+    // After all signings, promote any reserve that is clearly better than a
+    // same-role starter (form sample required, prospects protected). This is
+    // what makes the AI actually start/bench on merit, not just depth-chart
+    // order. swap_roster_slots re-elects IGL/Flex for the new five.
+    {
+        std::size_t before_n = roster.size();
+        std::vector<std::string> before;
+        for (std::size_t i = 0; i < std::min<std::size_t>(5, before_n); ++i)
+            before.push_back(roster[i] ? roster[i]->name : std::string());
+        optimize_starting_five(current_year);
+        for (std::size_t i = 0; i < std::min<std::size_t>(5, roster.size()); ++i) {
+            if (i < before.size() && roster[i] && roster[i]->name != before[i]) {
+                char buf[220];
+                std::snprintf(buf, sizeof(buf),
+                    "[OFFSEASON GM] Promoted %s (%s, %d OVR) into the starting 5 on merit.",
+                    roster[i]->name.c_str(), role_name(roster[i]->primary_role),
+                    (int)std::lround(roster[i]->ovr()));
+                log.emplace_back(buf);
             }
         }
     }
@@ -1733,6 +2392,20 @@ void Team::record_trophy(int year, const std::string& event_name) {
         if (tp.first == year && tp.second == event_name) return;
     }
     trophy_history_.emplace_back(year, event_name);
+    // Anti-dynasty: credit this title to every current roster player's
+    // titles-with-org. A decorated, long-tenured core grows restless (force 3),
+    // so winning here itself raises the odds the band breaks up.
+    for (auto& p : roster) if (p) p->titles_with_org += 1;
+}
+
+void Team::record_finals_appearance(int year, const std::string& event_name) {
+    // Idempotent on (year, event_name) — both tournament-resolution paths may
+    // call this for the same bracket. No titles_with_org bump (a final reached
+    // is not a title won).
+    for (const auto& fp : finals_history_) {
+        if (fp.first == year && fp.second == event_name) return;
+    }
+    finals_history_.emplace_back(year, event_name);
 }
 
 Team::TrophyCase Team::trophy_case() const {
@@ -2237,6 +2910,15 @@ bool Team::resign_player(const PlayerPtr& p, int years, int amount_k,
     p->contract.amount_k = amount_k;
     p->contract.exp_year = current_year + years - 1;
     p->contract_years    = years;
+    // Clear any prior promise / bonus; detailed callers re-set these after.
+    p->contract.signing_bonus_k  = 0;
+    p->contract.promised_starter = false;
+    p->contract.promised_role    = false;
+    p->contract.promise_active   = false;
+    // A fresh deal placates a disgruntled player (partial heal; a starter
+    // promise on top, set by the caller, removes the benched-promise driver).
+    p->discontent        *= 0.4;
+    p->transfer_requested = false;
     // Role::Count preserves prior contract_role (or seeds it from
     // primary_role if this is the first stamped deal). Any explicit role
     // override writes through.
@@ -2245,6 +2927,9 @@ bool Team::resign_player(const PlayerPtr& p, int years, int amount_k,
     } else if (p->contract_role == Role::Count) {
         p->contract_role = p->primary_role;
     }
+    // ROLE LOCK: keep the played role in sync with the (possibly newly chosen)
+    // contracted role so the re-sign decision sticks across attribute drift.
+    p->primary_role = p->contract_role;
     // Clear any pending mood the player carried against THIS team — they
     // signed a new deal, the slate resets. mood_for + bump_mood compose to
     // a no-op if there was no mood, so this is harmless either way.
@@ -2263,6 +2948,133 @@ int Team::market_value_estimate(const Player& p) const {
                                 /*randomize_exp=*/false,
                                 this);
     return c.amount_k;
+}
+
+// === FM-depth economy: transfer market + wealth ============================
+
+const char* wealth_tier_name(WealthTier w) noexcept {
+    switch (w) {
+        case WealthTier::Poor:      return "Poor";
+        case WealthTier::Modest:    return "Modest";
+        case WealthTier::Stable:    return "Stable";
+        case WealthTier::Rich:      return "Rich";
+        case WealthTier::SuperRich: return "Super-Rich";
+    }
+    return "Stable";
+}
+
+int Team::transfer_fee_for(const Player& p, int current_year) const {
+    // Free agents (and expiring/expired deals = de-facto FAs) move for wages
+    // only — no selling club, no fee.
+    if (p.team_name == "Free Agent" || p.team_name == "Retired") return 0;
+    if (p.contract.exp_year <= current_year) return 0;
+    double base_k = p.get_transfer_value() / 1000.0;                 // ~10..350
+    int years_left = std::min(3, std::max(0, p.contract.exp_year - current_year));
+    double yr_mult = 1.0 + 0.18 * years_left;                        // longer deal = pricier
+    double scarcity = 1.0;
+    RoleNeed need = compute_role_need();                             // our need, not the seller's
+    if (need.most_needed != Role::Count && p.primary_role == need.most_needed)
+        scarcity = 1.10;                                             // pay up to plug our hole
+    int fee = static_cast<int>(std::lround(base_k * yr_mult * scarcity));
+    return clamp_v(fee, kMinFeeK, kMaxFeeK);
+}
+
+void Team::pay_transfer_fee(const TeamPtr& seller, const Player& p,
+                            int current_year, int fee_k) {
+    if (fee_k > 0) {
+        budget        -= static_cast<long long>(fee_k) * 1000LL;
+        net_transfer_k -= fee_k;
+        if (seller) {
+            seller->budget         += static_cast<long long>(fee_k) * 1000LL;
+            seller->net_transfer_k += fee_k;
+        }
+    }
+    TransferRecord rec;
+    rec.year      = current_year;
+    rec.player    = p.name;
+    rec.from_team = seller ? seller->name : std::string("Free Agent");
+    rec.to_team   = name;
+    rec.fee_k     = fee_k;
+    rec.wage_k    = p.contract.amount_k;
+    auto push = [&](Team* tm) {
+        if (!tm) return;
+        tm->transfer_log_.insert(tm->transfer_log_.begin(), rec);
+        if (tm->transfer_log_.size() > 50) tm->transfer_log_.resize(50);
+    };
+    push(this);
+    if (seller && seller.get() != this) push(seller.get());
+}
+
+bool Team::within_wage_envelope(int wage_k, int fee_k) const {
+    // The new annual wage must fit the wage envelope (the org's responsible
+    // new-spend budget — already tilted by the buy-vs-develop fork), AND the
+    // immediate cash after the fee + first wage payment must stay above the
+    // absolute insolvency floor. The envelope is the discipline; the cash floor
+    // is the hard backstop. A wealthy win-now club has a bigger envelope and
+    // signs more; a rebuilder/poor club banks the difference. (The mandatory
+    // roster cascade-fill is NOT gated by this — rosters never starve.)
+    bool wage_ok = (wage_k <= wage_envelope_k);
+    long long cash_after = budget
+        - static_cast<long long>(fee_k) * 1000LL
+        - static_cast<long long>(wage_k) * 1000LL;
+    bool cash_ok = (cash_after >= kInsolvencyFloorBudget);
+    return wage_ok && cash_ok;
+}
+
+// === User Make-Offer support (Group D) ===================================
+int Team::sell_threshold_k(const Player& p, int current_year) const {
+    // FAs / expiring deals move for wages only — no approval needed.
+    if (p.team_name == "Free Agent" || p.team_name == "Retired") return 0;
+    if (p.contract.exp_year <= current_year) return 0;
+
+    // Market baseline from the player's value + years of control (the SELLER's
+    // view, so no buyer-need scarcity premium like transfer_fee_for adds).
+    double base_k = p.get_transfer_value() / 1000.0;
+    int years_left = std::min(3, std::max(0, p.contract.exp_year - current_year));
+    double market = base_k * (1.0 + 0.18 * years_left);
+
+    // Importance to THIS roster: a protected top-2 quality piece costs a big
+    // premium; a bench/depth player is cheap to offload.
+    int better = 0;
+    for (auto& r : roster)
+        if (r && r.get() != &p && r->ovr() > p.ovr()) ++better;
+    bool is_core    = (better < 2) && p.ovr() >= 72.0;
+    bool is_starter = (better < 5);
+
+    double mult;
+    switch (strategy) {
+        case Strategy::TalentFarm:       mult = 0.85; break;  // built to flip talent
+        case Strategy::BudgetRoster:     mult = 0.95; break;
+        case Strategy::Rebuilding:       mult = 1.00; break;
+        case Strategy::DevelopmentFocus: mult = 1.05; break;
+        case Strategy::Bridge:           mult = 1.15; break;
+        case Strategy::WinNow:           mult = 1.45; break;  // holds its veterans
+        case Strategy::Contender:        mult = 1.55; break;  // guards the core
+        default:                         mult = 1.15; break;
+    }
+    if (is_core)           mult += 0.60;   // your stars are not for sale (cheaply)
+    else if (!is_starter)  mult -= 0.25;   // bench depth — happy to bank the cash
+    if (budget < 1'000'000LL) mult -= 0.20;  // a cash-poor club sells more readily
+
+    int threshold = static_cast<int>(std::lround(market * mult));
+    // A guarded star can be priced ABOVE the normal buy-side cap (kMaxFeeK) —
+    // that's the point: it takes a blockbuster bid to prise them loose.
+    return clamp_v(threshold, kMinFeeK, kMaxFeeK * 2);
+}
+
+bool Team::will_sell(const Player& p, int offered_fee_k, int current_year) const {
+    int thr = sell_threshold_k(p, current_year);
+    if (thr <= 0) return true;             // expiring / FA — no fee approval needed
+    return offered_fee_k >= thr;
+}
+
+WealthTier Team::compute_wealth_tier() const {
+    double m = budget / 1000000.0 + sponsorship_k / 2000.0;  // cash + ~half sponsorship, in $M
+    if (m >= 1.8) return WealthTier::SuperRich;
+    if (m >= 1.1) return WealthTier::Rich;
+    if (m >= 0.5) return WealthTier::Stable;
+    if (m >= 0.0) return WealthTier::Modest;
+    return WealthTier::Poor;
 }
 
 Team::DynastyTier Team::dynasty_tier(int current_year) const {

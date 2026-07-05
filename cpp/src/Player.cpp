@@ -105,6 +105,7 @@ Player::Player(std::string n, int a, Attributes attrs, std::string r,
       region(std::move(r)),
       age(a),
       attributes(attrs) {
+    id = next_entity_id();
     contract_years = rng().irange(1, 4);
 
     int avg = static_cast<int>(avg_attrs(attributes));
@@ -134,6 +135,16 @@ Player::Player(std::string n, int a, Attributes attrs, std::string r,
 }
 
 double Player::ovr() const noexcept { return ovr_from_attrs(attributes); }
+
+bool Player::is_form_at_risk() const noexcept {
+    // Need a meaningful sample before declaring "at risk" — a player with
+    // 1-3 matches at sub-baseline could just be having a bad start. Same
+    // 4-match floor + 0.95 rating threshold the Manager form tracker used
+    // to hard-code in UI.
+    if (season_matches < 4) return false;
+    double srat = season_rating_total / static_cast<double>(season_matches);
+    return srat < 0.95;
+}
 
 // =========================================================================
 // Role compatibility (2026-05-28)
@@ -183,6 +194,19 @@ double Player::role_fit_score(Role r) const {
             break;
         default: break;
     }
+    if (s < 0.0) s = 0.0;
+    if (s > 1.0) s = 1.0;
+    return s;
+}
+
+double Player::agent_fit_score(const Agent& a) const noexcept {
+    // Same a1/a2/a3 weighting get_rating uses for its agent_match term, but
+    // normalized to 0..1 so it is directly comparable to role_fit_score. A
+    // player who has the SPECIFIC agent's signature attributes scores high
+    // even if their generic ROLE profile is mediocre (the Controller->Killjoy /
+    // Controller->Sova case the role-level score misjudges).
+    auto v = [&](Attr at) { return ::vlr::at(attributes, at) / 99.0; };
+    double s = 0.45 * v(a.a1) + 0.32 * v(a.a2) + 0.23 * v(a.a3);
     if (s < 0.0) s = 0.0;
     if (s > 1.0) s = 1.0;
     return s;
@@ -261,11 +285,18 @@ int Player::get_rating(const Agent& agent, const GameMap& map) const noexcept {
                        + at(attributes, agent.a3) * 0.23;
     double map_match = (at(attributes, map.a1) + at(attributes, map.a2) + at(attributes, map.a3)) / 3.0;
     double role_bonus = (map.favored_role == agent.role) ? 3.5 : 0.0;
+    // MAP SIGNATURE AGENT: the 2-3 agents a map meta-demands (Viper on Breeze,
+    // Killjoy/Cypher on lockdown maps, Sova on recon maps). A slightly-stronger-
+    // than-role bonus so each map slot prefers the agent the map actually wants,
+    // and a forced off-role flex lands on the map's demanded agent rather than
+    // an arbitrary same-role pick. Doesn't override a much-better-fitting agent.
+    double sig_bonus = is_map_signature_agent(agent.name, map.name) ? 4.0 : 0.0;
     // Mastery: experienced players are stronger on their signature agent.
     // Capped at +12 by mastery_bonus_for; here we count it at 0.5x weight so
     // total mastery contribution to get_rating tops out around +6.
     double mastery = mastery_bonus_for(agent.name) * 0.5;
-    double v = base_ovr + agent_match * 0.25 + map_match * 0.15 + role_bonus + mastery;
+    double v = base_ovr + agent_match * 0.25 + map_match * 0.15
+             + role_bonus + sig_bonus + mastery;
     int iv = static_cast<int>(std::round(v));
     if (iv > 98) iv = 98;
     if (iv < 1)  iv = 1;
@@ -278,7 +309,13 @@ int Player::get_transfer_value() const noexcept {
     double age_factor = 1.0;
     if (age > 24) age_factor = std::max(0.15, 1.0 - (age - 24) * 0.15);
     else if (age < 21) age_factor = 1.2;
-    int val = static_cast<int>(base_value * age_factor);
+    // FAME premium: a famous name commands a market premium, an unknown a discount
+    // (~0.7..1.5x). Reputation lags OVR, so a fading star still fetches a name-value
+    // fee for a season or two, and a rising prospect is cheap until they're known.
+    double rep_mult = 1.0 + (reputation - 5000) / 5000.0 * 0.45;
+    if (rep_mult < 0.7) rep_mult = 0.7;
+    if (rep_mult > 1.5) rep_mult = 1.5;
+    int val = static_cast<int>(base_value * age_factor * rep_mult);
     return clamp_v(val, 10000, 350000);
 }
 
@@ -398,7 +435,10 @@ Contract Player::gen_contract(int current_year, bool randomize_amount, bool rand
         base_amount = 18.0 + (value_p - 40.0) * (17.0/15.0); // 18..35 (mid/starter)
     } else {
         absolute_max = 25;
-        base_amount = 10.0 + (value_p - 25.0) * (8.0/15.0);  // 10..18 (bench/low)
+        // value_p can fall below the 25 anchor (down to ~22 for deep-bench
+        // spawns); clamp the spread term at >=0 so the base never dips below
+        // the intended $10K floor (a negative term used to compute base ~2).
+        base_amount = 10.0 + std::max(0.0, value_p - 25.0) * (8.0/15.0);  // 10..18 (bench/low)
     }
 
     double amount = base_amount;
@@ -411,6 +451,24 @@ Contract Player::gen_contract(int current_year, bool randomize_amount, bool rand
     amount *= trophy_mult;
     amount *= veteran_discount;
     amount *= role_salary_mult(primary_role);
+    // FAME premium on the ASK: a high-reputation star demands to be paid like a
+    // star (~0.85..1.35x), an unknown accepts less. Reputation lags OVR, so this
+    // tracks the same fame curve as the transfer-value premium.
+    {
+        double rep_wage = 1.0 + (reputation - 5000) / 5000.0 * 0.35;
+        if (rep_wage < 0.85) rep_wage = 0.85;
+        if (rep_wage > 1.35) rep_wage = 1.35;
+        amount *= rep_wage;
+    }
+
+    // Personality lean on the ASK: greedy / egotistical players demand more,
+    // humble ones less (centered at 50 = 1.0x). Bounded so it shifts within the
+    // existing salary bands rather than redefining them, keeping smoke #12/#13.
+    {
+        double greed_lean = 1.0 + (greed - 50) / 49.0 * 0.12;   // ±12%
+        double ego_lean   = 1.0 + (ego   - 50) / 49.0 * 0.06;   // ±6%
+        amount *= clamp_v(greed_lean * ego_lean, 0.82, 1.22);
+    }
 
     if (randomize_amount) {
         std::normal_distribution<double> g(1.0, 0.10);
@@ -444,8 +502,124 @@ Contract Player::gen_contract(int current_year, bool randomize_amount, bool rand
     int amt = clamp_v(static_cast<int>(std::round(amount)), kSalaryFloorK, absolute_max);
     Contract c;
     c.amount_k = amt;
-    c.exp_year = current_year + years - 1;
+    // Use the global world year as a baseline when no explicit year is passed
+    // (the ctor calls this with current_year=0 to seed an FA placeholder); this
+    // keeps the placeholder sensible for a rookie generated mid-game instead of
+    // a near-zero exp_year.
+    int base_year = (current_year > 0) ? current_year : current_world_year();
+    c.exp_year = base_year + years - 1;
     return c;
+}
+
+double Player::perf_score() const {
+    // Recent on-server form: career rating with a tilt toward the most recent
+    // season. ~0.55 (poor) .. ~1.70 (elite); 1.0 when there is no data yet.
+    double career = avg_match_rating();
+    if (career <= 0.0) career = 1.0;
+    double recent = history.empty() ? career : history.back().rating;
+    if (recent <= 0.0) recent = career;
+    double blended = 0.45 * career + 0.55 * recent;
+    return clamp_v(blended, 0.55, 1.70);
+}
+
+double Player::accolade_score() const {
+    // Career hardware: MVPs + international titles + total award count.
+    // 0 (undecorated) .. ~1.3 (a legend).
+    double pts = 0.0;
+    pts += career_mvps                       * 0.18;
+    pts += award_count_by_prefix("[W] ")     * 0.20;   // World/Champions titles
+    pts += award_count_by_prefix("[M] ")     * 0.10;   // Masters titles
+    pts += static_cast<int>(awards.size())   * 0.03;   // regional / role awards
+    return clamp_v(pts, 0.0, 1.30);
+}
+
+Player::MoodBreakdown Player::mood_breakdown(const Team& team, int current_year) const {
+    MoodBreakdown b;
+
+    // --- Team form (win/loss record this season) ---
+    {
+        int g = team.wins + team.losses;
+        if (g >= 3) {
+            double winpct = static_cast<double>(team.wins) / g;
+            b.team_perf_mod = clamp_v(static_cast<int>(std::lround((winpct - 0.5) * 30.0)), -15, 15);
+        }
+    }
+    // --- Own form (season rating vs ~1.0 baseline, ego-amplified) ---
+    if (season_matches > 0) {
+        double r = season_rating_total / season_matches;
+        double ego01 = ego / 99.0;
+        b.own_perf_mod = clamp_v(
+            static_cast<int>(std::lround((r - 1.0) * 30.0 * (0.8 + 0.4 * ego01))), -15, 15);
+    }
+    // --- Club history / pedigree (prestige + dynasty), ambition cares more ---
+    {
+        int h = 0;
+        if      (team.prestige >= 80) h += 12;
+        else if (team.prestige >= 60) h += 7;
+        else if (team.prestige <  35) h -= 5;
+        h += clamp_v(static_cast<int>(team.dynasty_tier(current_year)), 0, 8);
+        double amb01 = ambition / 99.0;
+        b.history_mod = clamp_v(static_cast<int>(std::lround(h * (0.7 + 0.6 * amb01))), -8, 20);
+    }
+    // --- Chemistry with the current roster ---
+    {
+        double chem = 0.0; int n = 0;
+        for (auto& tp : team.roster) {
+            if (!tp || tp.get() == this) continue;
+            chem += team.chemistry_between(*this, *tp);
+            ++n;
+        }
+        if (n > 0) b.chemistry_mod = clamp_v(static_cast<int>(std::lround((chem / n) * 12.0)), -15, 15);
+    }
+    // --- Teammate personalities: big egos in the room create friction ---
+    {
+        int hot = 0;
+        for (auto& tp : team.roster)
+            if (tp && tp.get() != this && tp->ego >= 75) ++hot;
+        b.teammate_mod = clamp_v(-hot * 3, -8, 0);
+    }
+    // --- Personality vs situation: ambitious player on a weak/strong roster ---
+    {
+        double avg_ovr = 0.0; int n = 0;
+        for (auto& tp : team.roster) { if (tp) { avg_ovr += tp->ovr(); ++n; } }
+        if (n > 0) avg_ovr /= n;
+        double amb01 = ambition / 99.0;
+        int pm = 0;
+        if      (avg_ovr <  65.0) pm -= static_cast<int>(std::lround(amb01 * 8.0));
+        else if (avg_ovr >= 78.0) pm += static_cast<int>(std::lround(amb01 * 6.0));
+        b.personality_mod = clamp_v(pm, -10, 10);
+    }
+    // --- Playtime (a benched starter is unhappy) ---
+    b.playtime_mod = (season_matches >= 8) ? 4 : (season_matches >= 4 ? -3 : -12);
+
+    // --- Standing grievance: per-org mood + global discontent (drag only) ---
+    b.grievance_mod = -static_cast<int>(std::lround(40.0 * mood_for(team.name)))
+                      -static_cast<int>(std::lround(25.0 * discontent));
+
+    b.total = clamp_v(b.base_score + b.team_perf_mod + b.own_perf_mod + b.history_mod
+                      + b.chemistry_mod + b.teammate_mod + b.personality_mod
+                      + b.playtime_mod + b.grievance_mod, 0, 100);
+
+    if      (b.total >= 80) b.verdict = "THRIVING";
+    else if (b.total >= 62) b.verdict = "HAPPY";
+    else if (b.total >= 42) b.verdict = "CONTENT";
+    else if (b.total >= 25) b.verdict = "UNHAPPY";
+    else                    b.verdict = "MISERABLE";
+
+    auto add = [&](const char* nm, int v) { if (v != 0) b.labels.emplace_back(nm, v); };
+    add("Team form",     b.team_perf_mod);
+    add("Own form",      b.own_perf_mod);
+    add("Club pedigree", b.history_mod);
+    add("Chemistry",     b.chemistry_mod);
+    add("Teammates",     b.teammate_mod);
+    add("Personality",   b.personality_mod);
+    add("Playtime",      b.playtime_mod);
+    add("Grievance",     b.grievance_mod);
+    return b;
+}
+
+int Player::overall_mood(const Team& team, int current_year) const {
+    return mood_breakdown(team, current_year).total;
 }
 
 double Player::mood_for(std::string_view team_name) const {
@@ -494,6 +668,22 @@ void Player::apply_badge(std::string_view name) {
     for (auto& m : b->mods) apply_attribute_delta(m.stat, m.delta);
 }
 
+bool Player::god_set_badge(std::string_view name, bool on) {
+    const Badge* b = find_badge(name);
+    if (!b) return false;
+    bool present = false;
+    for (const auto& bn : badges) if (bn == name) { present = true; break; }
+    if (on) {
+        if (present) return true;            // idempotent — no double-apply of mods
+        apply_badge(name);                   // append + apply deltas (uses b->name)
+        return true;
+    }
+    if (!present) return false;
+    for (const auto& m : b->mods) apply_attribute_delta(m.stat, -m.delta);   // reverse mods
+    badges.erase(std::remove(badges.begin(), badges.end(), std::string(name)), badges.end());
+    return true;
+}
+
 void Player::generate_badges() {
     // Badges should feel rare and special. Per-badge spawn chance kept low
     // and capped at 1 spawn-time badge per player so the rare ones aren't
@@ -531,8 +721,8 @@ void Player::update_agent_pool() {
         const double v3 = static_cast<double>(at(attributes, a.a3));
         double s = v1 * 0.45 + v2 * 0.32 + v3 * 0.23;
 
-        if (a.role == primary_role) s += 6.0;
-        s += mastery_bonus_for(a.name);
+        if (a.role == primary_role) s += 3.0;   // softened 6->3 so genuinely
+        s += mastery_bonus_for(a.name);          // high off-role fits compete
         return s;
     };
 
@@ -560,7 +750,12 @@ void Player::update_agent_pool() {
         double s = compute_role_score(static_cast<Role>(i));
         if (s > best_score) { best_score = s; best = static_cast<Role>(i); }
     }
-    primary_role = best;
+    // ROLE LOCK: a SIGNED player (contract_role != Count) keeps the role they
+    // were contracted into regardless of how their attributes drift — only the
+    // user (or an explicit AI signing) ever changes it. FA-pool players
+    // (contract_role == Count) still re-derive their natural role so the pool
+    // stays fresh. The agent-pool ordering below always uses `best`.
+    if (contract_role == Role::Count) primary_role = best;
 
     // === Sort all agents by full score (now that primary_role is set) ===
     std::vector<const Agent*> all;
@@ -582,16 +777,25 @@ void Player::update_agent_pool() {
     for (auto* a : all) if (a->role == primary_role) { primary_top = a; break; }
     if (primary_top) agent_pool.push_back(primary_top);
 
+    // Step 1b: RESERVE cross-role agents (VCT-accurate — most pros cover their
+    // role PLUS 2+ agents OUTSIDE it). Pull the best kCross non-primary-role
+    // agents BEFORE the generic fill so same-role picks don't crowd them out.
+    // Pools of size <= 2 stay pure one/two-tricks (no reserve).
+    int kCross = (agent_pool_size <= 2) ? 0
+               : std::min(cross_role_min, agent_pool_size - 1);
+    for (auto* a : all) {
+        if (static_cast<int>(agent_pool.size()) >= 1 + kCross) break;
+        if (a == primary_top || a->role == primary_role) continue;  // off-role only
+        agent_pool.push_back(a);
+    }
+
     // Step 2: fill the remainder up to agent_pool_size from the next-highest
-    // scorers across ANY role. With heavily weighted a1+mastery+role, this
-    // produces the desired specialisation:
-    //   - 1-trick:  small pool, score gap to #2 huge
-    //   - flex:     pool ~5, scores tightly packed
-    //   - veteran:  mastery-locked picks even after attribute drift
+    // scorers across ANY role (skipping anything already pinned/reserved).
     int target = std::max(1, std::min<int>(agent_pool_size, static_cast<int>(AG.size())));
     for (auto* a : all) {
         if (static_cast<int>(agent_pool.size()) >= target) break;
         if (a == primary_top) continue;
+        if (std::find(agent_pool.begin(), agent_pool.end(), a) != agent_pool.end()) continue;
         agent_pool.push_back(a);
     }
 }
@@ -1226,6 +1430,107 @@ void Player::save_history_and_progress(int year, std::string_view team_placement
     // duplicates surfaced by future bugs get scrubbed automatically.
     dedupe_awards();
 
+    // === Reputation drift (FM-style fame; DETERMINISTIC, no rng) ==========
+    // Fame LAGS reality: each year-end reputation moves a fraction of the way
+    // toward a target built from current OVR (standing) + career accolades
+    // (trophies/MVPs, via accolade_score) + this season's form. Winning and
+    // big-stage performance raise it; a poor season nudges it down. The 0.22
+    // step means a promoted club's players take ~3-4 seasons for their
+    // reputation to catch up to their true level (the "slow growth" the user
+    // wants). Reads season_matches/season_rating_total BEFORE the reset below.
+    if (team_name != "Retired") {
+        double ov = ovr();
+        double target = 500.0 + (ov - 45.0) * 130.0 + accolade_score() * 900.0
+                      + (age - 20) * 45.0;
+        if (season_matches >= 8) {
+            double sr = season_rating_total / static_cast<double>(season_matches);
+            if      (sr >= 1.25) target += 320.0;
+            else if (sr >= 1.10) target += 130.0;
+            else if (sr <= 0.85) target -= 180.0;
+        }
+        target = clamp_v(target, 150.0, 10000.0);
+        reputation += static_cast<int>(std::lround((target - reputation) * 0.22));
+        reputation = static_cast<int>(clamp_v(static_cast<double>(reputation), 1.0, 10000.0));
+    }
+
+    // Benched-promise grievance: a player GUARANTEED a starting slot who played
+    // ZERO matches this season feels betrayed — sour their mood toward the team
+    // (raising their next ask / refusal floor). Reads season_matches BEFORE the
+    // year-end reset below. The promise stays live for the rest of the deal, so
+    // it can fire each benched season; a season actually played costs nothing.
+    if (contract.promise_active && contract.promised_starter && season_matches == 0
+        && team_name != "Free Agent" && team_name != "Retired") {
+        bump_mood(team_name, 0.30);
+    }
+
+    // === Discontent / transfer-request (global "I want out" signal) ========
+    // Distinct from per-org mood. Decay last year first (a good season heals),
+    // then accrue grievances — benched on a starter promise, low playtime, a
+    // losing/relegated season — each scaled by ego/ambition. >= 0.6 hands in a
+    // transfer request; < 0.3 withdraws it. Reads season_matches BEFORE reset.
+    if (team_name != "Free Agent" && team_name != "Retired") {
+        discontent *= 0.6;                       // heal over time
+        double ego01 = ego / 99.0, amb01 = ambition / 99.0;
+        if (contract.promise_active && contract.promised_starter && season_matches == 0)
+            discontent += 0.35 * (0.7 + 0.6 * ego01);
+        if (season_matches < 8) discontent += 0.15 * (0.7 + 0.6 * ego01);
+        if (season_matches < 4) discontent += 0.10 * (0.7 + 0.6 * ego01);
+        std::string tp(team_placement);
+        bool losing = tp.find("Relegat") != std::string::npos
+                   || tp.find("Bottom")  != std::string::npos
+                   || tp.find("Last")    != std::string::npos
+                   || tp.find("Missed")  != std::string::npos;
+        if (losing) discontent += 0.10 * (0.7 + 0.8 * amb01);
+        // Chronic OFF-ROLE grievance (P5.1): a player deployed mostly off his
+        // primary role grows restless, ego-scaled (a bigger ego resents the
+        // shift more). Gated at a real commitment (>=34% of >=8 maps off-role)
+        // and hard-capped at +0.12 so it nudges the transfer-request odds
+        // without dominating the mood model. Reads season_role_maps BEFORE the
+        // year-end reset below.
+        {
+            int total_role_maps = 0;
+            for (int rm : season_role_maps) total_role_maps += rm;
+            if (total_role_maps >= 8) {
+                double offrole_share =
+                    static_cast<double>(season_offrole_matches) / total_role_maps;
+                if (offrole_share >= 0.34)
+                    discontent += std::min(0.12,
+                        (offrole_share - 0.34) * 0.30 * (0.7 + 0.6 * ego01));
+            }
+        }
+        discontent = clamp_v(discontent, 0.0, 1.0);
+        if (discontent >= 0.6 && !transfer_requested) {
+            transfer_requested    = true;
+            transfer_request_year = year;
+        } else if (discontent < 0.3 && transfer_requested) {
+            transfer_requested = false;
+        }
+
+        // === Anti-dynasty RESTLESSNESS (force 3, personality-keyed D3) ======
+        // Success + ambition makes a star itch to leave even a WINNING,
+        // well-managed team — DISTINCT from grievance discontent. A loyal /
+        // stability player BONDS with a decorated org (restlessness decays to
+        // 0, a one-club legend); an ambitious / ego / low-loyalty star who has
+        // won here grows restless and forces a move regardless of management.
+        // Evaluated for AI + user identically (the same pressure pass).
+        tenure_years_at_org = (joined_year > 0) ? std::max(0, year - joined_year) : 0;
+        double loy01 = loyalty / 99.0;
+        double tenure01 = std::min(tenure_years_at_org, 5) / 5.0;
+        double success  = std::min(1.0, titles_with_org * 0.25);       // 4+ titles = max
+        double drive    = 0.55 * amb01 + 0.35 * ego01 - 0.45 * loy01;  // ambition/ego push, loyalty pulls
+        double accrual  = std::max(0.0, drive) * (0.40 * success + 0.22 * tenure01);
+        double bond     = 0.16 * loy01 + 0.035 * std::min(titles_with_org, 5);  // loyal legends settle in
+        restlessness = clamp_v(restlessness * 0.78 + accrual - bond, 0.0, 1.0);
+        // Restlessness can INDEPENDENTLY hand in a transfer request (real
+        // contributors only — star floor). The release pass acts on it.
+        if (restlessness >= 0.55 && ovr() >= 75.0 && !transfer_requested) {
+            transfer_requested    = true;
+            transfer_request_year = year;
+        }
+    } else {
+        restlessness = 0.0;   // FAs/retired carry no org itch
+    }
+
     if (season_matches > 0) {
         MatchHistoryEntry e;
         e.year = year;
@@ -1243,6 +1548,7 @@ void Player::save_history_and_progress(int year, std::string_view team_placement
         e.kills   = season_kills;
         e.deaths  = season_deaths;
         e.assists = season_assists;
+        e.ovr     = static_cast<int>(std::round(ovr()));  // career-arc trend sample
         // Per-season earnings: pull from the most recent salary_log entry
         // matching this year (pay_payroll appends one each year-end).
         for (auto it = salary_log.rbegin(); it != salary_log.rend(); ++it) {
@@ -1270,33 +1576,12 @@ void Player::save_history_and_progress(int year, std::string_view team_placement
     // years_left is derived from exp_year. See Player.h field doc.
     // contract_years -= 1;
 
-    int growth = 0;
-    if (age <= peak_age) {
-        int gap = std::max(0, potential - static_cast<int>(ovr()));
-        if (gap > 0) {
-            int inflection_age = peak_age - 3;
-            double age_factor = std::max(0.2, 1.0 - std::abs(age - inflection_age) * 0.15);
-            double growth_chance = (work_ethic / 100.0) * age_factor;
-            int growth_amt;
-            if (growth_archetype == GrowthArchetype::LateBloomer && age >= 23 && age <= 27) {
-                growth_chance = 1.0;
-                growth_amt = rng().irange(3, 6);
-            } else {
-                growth_amt = rng().irange(1, std::max(2, static_cast<int>(gap * 0.15)));
-            }
-            growth = rng().chance(growth_chance) ? growth_amt : rng().irange(0, 1);
-        }
-    } else {
-        double decline_rate = (age - peak_age) * 0.5;
-        growth = -rng().irange(0, std::max(1, static_cast<int>(decline_rate)));
-    }
-
-    for (std::size_t i = 0; i < kAttrCount; ++i) {
-        Attr at_id = static_cast<Attr>(i);
-        int g = growth;
-        if (growth < 0 && (at_id == Attr::Aim || at_id == Attr::Headshot || at_id == Attr::Entry)) g -= 1;
-        attributes[i] = clamp_attr(attributes[i] + g);
-    }
+    // NOTE: a year-end attribute growth/decline block used to live here, but it
+    // DOUBLE-COUNTED with apply_monthly_progression (the authoritative
+    // per-attribute age curve, applied ~monthly). Stacking the two made
+    // veterans decline ~2x too fast and under-peak prospects double-grow.
+    // Aging is now owned ENTIRELY by apply_monthly_progression; this block was
+    // removed. (age += 1 above and the mastery decay below still belong here.)
 
     // === Mastery year-end decay ===
     // Gentle 15%/yr match-count decay + 3%/yr avg-rating decay for any agent
@@ -1342,6 +1627,7 @@ void Player::save_history_and_progress(int year, std::string_view team_placement
     season_rounds_with_kast = 0;
     season_matches = 0;
     season_rating_total = 0.0;
+    season_damage = season_hs_hits = 0;
 
     // === IGL impact + MVP support — per-season counters reset ===
     // Career totals (igl_impact_total, igl_match_count) are NEVER reset —
@@ -1349,7 +1635,12 @@ void Player::save_history_and_progress(int year, std::string_view team_placement
     igl_impact_season      = 0.0;
     igl_impact_season_peak = 0.0;
     season_pressure_matches = 0;
+    season_intl_matches     = 0;
     season_clutch_pts       = 0;
+    // Off-role accounting (P4.0) — reset alongside the other season_* counters.
+    season_offrole_matches      = 0;
+    season_offrole_rating_total = 0.0;
+    season_role_maps.fill(0);
 }
 
 // === Monthly progression ===================================================
@@ -1471,17 +1762,24 @@ double interp_curve(const AgingCurvePoint* pts, int n, int age) {
 }
 
 double baseline_delta(Player::AttrAgingClass cls, int age) {
-    // Mechanical: peaks 22-25; fast decline after 26.
+    // Mechanical (aim/HS/reaction): rises hard while young, holds a plateau
+    // through 26-27, then declines from ~28. Curves shifted ~2y later + the
+    // young end steepened so a 19-22yo prospect actually climbs, and a 27yo
+    // still holds (the old curve declined from 25, which read as "27yo not
+    // developing"). Real decline still bites at 30+.
     static const AgingCurvePoint kMech[] = {
-        {19,  2.5}, {22,  1.0}, {25, -0.2}, {28, -1.8}, {32, -3.0}
+        {18,  3.6}, {21,  2.2}, {24,  0.9}, {27,  0.0}, {30, -1.6}, {33, -3.0}
     };
-    // Game-IQ: climbs into 28+, ages gracefully.
+    // Game-IQ (game sense/intel/comms/lead): keeps climbing well into the late
+    // 20s — this is why veterans/IGLs keep getting better even as mechanics
+    // fade. Only turns negative in the mid-30s.
     static const AgingCurvePoint kIQ[] = {
-        {19,  1.5}, {22,  1.4}, {25,  1.1}, {28,  0.6}, {32,  0.1}, {36, -0.4}
+        {18,  2.0}, {22,  1.8}, {26,  1.2}, {29,  0.7}, {33,  0.2}, {37, -0.3}
     };
-    // Athletic: middle ground.
+    // Athletic (movement/positioning/entry/clutch): middle ground — strong
+    // young growth, gentle plateau to ~27, then a measured decline.
     static const AgingCurvePoint kAth[] = {
-        {19,  1.8}, {22,  0.8}, {25,  0.2}, {28, -0.6}, {32, -1.8}
+        {18,  2.6}, {21,  1.6}, {24,  0.7}, {27,  0.0}, {30, -1.0}, {33, -2.0}
     };
     switch (cls) {
         case Player::AttrAgingClass::Mechanical:
@@ -1579,12 +1877,27 @@ ProgressionReport Player::apply_monthly_progression(const Coach* coach,
     else if (growth_archetype == GrowthArchetype::LateBloomer) age_for_curve = age - 2;
 
     // Potential pressure (positive deltas only): growth slows as ovr nears
-    // potential. delta *= max(0.1, 1 - (ovr/pot)^2). Declines bypass.
+    // potential. delta *= max(0.08, 1 - (ovr/pot)^3). The CUBE (was square)
+    // is gentler in the mid-range — a prospect at 65% of potential is barely
+    // dampened (0.73 vs the old 0.58) so high-ceiling youngsters actually
+    // climb — but still clamps hard right at the ceiling. Declines bypass.
     double cur_ovr = ovr();
     double pot_pressure_pos = 1.0;
     if (potential > 0) {
         double ratio = clamp_v(cur_ovr / static_cast<double>(potential), 0.0, 1.5);
-        pot_pressure_pos = std::max(0.10, 1.0 - ratio * ratio);
+        pot_pressure_pos = std::max(0.08, 1.0 - ratio * ratio * ratio);
+    }
+
+    // Future-star acceleration: a young player (<=23) sitting well below their
+    // potential develops FASTER toward it — this is what turns a high-ceiling
+    // 19-22yo into a breakout star instead of a slow climber. Scales with the
+    // remaining gap (potential - ovr) and fades to 1.0 by age 24. Applied to
+    // POSITIVE movement only (deltas + noise); never speeds decline.
+    double youth_accel = 1.0;
+    if (age <= 23 && potential > 0) {
+        double gap = clamp_v((static_cast<double>(potential) - cur_ovr) / 35.0, 0.0, 1.0);
+        double age_factor = clamp_v((24.0 - age) / 5.0, 0.0, 1.0);  // 1.0 at <=19 -> 0 at 24
+        youth_accel = 1.0 + 1.7 * gap * age_factor;                 // up to ~2.7x
     }
 
     // Asymmetric young-player noise: archetypes that thrive on breakout get
@@ -1612,7 +1925,7 @@ ProgressionReport Player::apply_monthly_progression(const Coach* coach,
         double scale = work_mult * cons_factor * arch_mult * coach_mult;
 
         double delta_year = base * scale;
-        if (delta_year > 0.0) delta_year *= pot_pressure_pos;
+        if (delta_year > 0.0) delta_year *= pot_pressure_pos * youth_accel;
 
         double delta_month = delta_year * kMonthlyScale;
 
@@ -1644,13 +1957,22 @@ ProgressionReport Player::apply_monthly_progression(const Coach* coach,
         // young-player feel.
         noise_month += noise_year * kMonthlyScale * 0.25;
 
+        // Potential ceiling damps POSITIVE noise too (not just the deterministic
+        // curve), so a prospect can't noise-walk past their potential as the
+        // fractional carry below lands. Youth acceleration also lifts positive
+        // noise so breakout spikes land harder for high-ceiling youngsters.
+        if (noise_month > 0.0) noise_month *= pot_pressure_pos * youth_accel;
+
         double total = delta_month + noise_month;
 
-        // Round to int — fractional carry-over isn't tracked (the average
-        // over 12 monthly ticks delivers the per-year baseline by construction).
-        int delta_int;
-        if (total >= 0.0) delta_int = static_cast<int>(std::round(total));
-        else              delta_int = -static_cast<int>(std::round(-total));
+        // Fractional carry: accumulate the real-valued monthly delta so slow
+        // deterministic curves (e.g. +0.09/month) actually LAND over time
+        // instead of rounding to 0 every tick and never moving the attribute.
+        // The remainder carries to the next tick (truncation toward zero works
+        // for both signs).
+        attr_growth_carry[i] += total;
+        int delta_int = static_cast<int>(attr_growth_carry[i]);
+        attr_growth_carry[i] -= static_cast<double>(delta_int);
 
         if (delta_int == 0) continue;
 
@@ -1672,6 +1994,38 @@ ProgressionReport Player::apply_monthly_progression(const Coach* coach,
     // === Update career_max_ovr — used by should_retire stage 2 ===========
     int now_ovr = static_cast<int>(std::round(ovr()));
     if (now_ovr > career_max_ovr) career_max_ovr = now_ovr;
+
+    // === Development trajectory stamp (item 8) ===========================
+    // Recompute the trajectory CLASS from REAL recent movement so the
+    // indicator tracks form + development rather than a static gap/age guess,
+    // and updates every tick instead of going stale. Uses: OVR delta since the
+    // last tick, the recent 30-day window rating (avg_rating, falling back to
+    // the cached value if no matches this window), the potential gap, and age.
+    {
+        int prev_ovr  = (ovr_at_last_tick > 0) ? ovr_at_last_tick : now_ovr;
+        int ovr_delta = now_ovr - prev_ovr;
+        ovr_at_last_tick = now_ovr;
+        double rr = (new_matches > 0) ? avg_rating : last_form_rating;
+        if (new_matches > 0) last_form_rating = avg_rating;
+        int gap = potential - now_ovr;
+
+        TrajClass tc;
+        if (age <= 23 && gap >= 6 && rr > 0.0 && rr < 0.92)
+            tc = TrajClass::Slump;        // high ceiling but underperforming NOW
+        else if (age <= 23 && gap >= 8 && potential >= 86 && ovr_delta >= 0)
+            tc = TrajClass::FutureStar;   // young, elite ceiling, not regressing
+        else if (age <= 25 && gap >= 6 && ovr_delta > 0)
+            tc = TrajClass::Rising;       // climbing toward a real ceiling
+        else if (age >= 28 && ovr_delta < 0)
+            tc = TrajClass::Declining;    // veteran losing OVR
+        else if (age >= 30 && gap <= 2)
+            tc = TrajClass::Twilight;     // late-career, near ceiling
+        else if (gap >= 4 && ovr_delta >= 0)
+            tc = TrajClass::Developing;   // slow positive growth
+        else
+            tc = TrajClass::Established;
+        trajectory_class = tc;
+    }
 
     // === Build human-readable explanation ===
     char buf[512];
@@ -1836,7 +2190,20 @@ void apply_rookie_archetype(Player& p, RookieArchetype a) {
                                      + 0.05 * getA(Attr::DecisionMaking)) / 99.0;
                 bool gate_ok = (mental_after >= 0.55) &&
                                !(p.primary_role == Role::Duelist && mental_after < 0.78);
-                if (gate_ok) p.is_igl = true;
+                // Duelists: the archetype's huge mental boost makes the 0.78
+                // gate trivially passable, which used to AUTO-force nearly
+                // every TacticalIGL duelist into is_igl — the dominant source
+                // of the old ~26% Duelist-IGL rate. A born shot-caller is
+                // realistically a utility player, not a duelist main, so a
+                // duelist who rolls TacticalIGL only RARELY stamps IGL (and
+                // even then must clear the gate). Non-duelists force normally.
+                if (gate_ok) {
+                    if (p.primary_role == Role::Duelist) {
+                        if (rng().chance(0.12)) p.is_igl = true;
+                    } else {
+                        p.is_igl = true;
+                    }
+                }
             }
             p.tend_play_aggressive = 30 + (int)(rng().uniform()*40);
             p.tend_vocal = 60 + (int)(rng().uniform()*35);
@@ -1859,6 +2226,7 @@ void apply_rookie_archetype(Player& p, RookieArchetype a) {
         case RookieArchetype::FlexibleUtility:
             for (auto k : {Attr::Aim, Attr::Utility, Attr::GameSense,
                             Attr::Anchor, Attr::Entry}) bump(k, 4);
+            p.cross_role_min = 3;   // a true flex reliably covers 3 roles
             bump(Attr::Adaptability,16);
             // Flex players actually play more agents — bump pool size.
             p.agent_pool_size = std::max(p.agent_pool_size, 5);
@@ -1939,22 +2307,35 @@ RookieArchetype roll_rookie_archetype() {
 // === IGL spawn weighting helpers ==========================================
 //
 // IGLs are no longer rolled at a flat 25% across every primary_role. The
-// ecosystem target after a full season:
-//   * ~35-40% of IGLs are Controllers
-//   * ~35-40% are Initiators
-//   * ~15-20% are Sentinels
-//   * ~3-7%   are Duelists (extreme rarity — only elite minds)
+// player-facing distribution after a full season (VCT-realistic — INITIATORS
+// lead the IGL role because recon/info feeds the shot-caller's mid-round read:
+// FNS, Saadhak, ANGE1, Redgar, Boaster) lands at roughly:
+//   * ~42% Initiators (the canonical IGL home — leads but not lopsided)
+//   * ~36% Controllers
+//   * ~22% Sentinels
+//   * ~0-5% Duelists (rare — only elite minds, decentralised teams)
+// See docs/VCT_REALISM_SPEC.md and the [14c] smoke test.
 //
 // Implementation: per-role base chance, mental-stat gate (must clear 0.55
 // composite to qualify at all; Duelists need 0.78), then a mental_mult that
-// scales the base chance up across the 0.55..1.0 mental band.
+// scales the base chance up across the 0.55..1.0 mental band. The team-level
+// Team::igl_candidate_score role_mult must track the SAME ordering so spawn
+// and re-election agree.
 
 static double base_igl_chance_for_role(Role r) noexcept {
+    // NOTE: Initiator's base is set LOWER than Controller/Sentinel on purpose.
+    // Initiators carry a natural IGL-mental edge (GameSense / Communication /
+    // MidRoundCalling are core to the info role), so they win the team-level
+    // election (Team::enforce_one_igl) more often than their spawn rate alone
+    // implies. With these bases the player-facing distribution lands at roughly
+    // Initiator 42% / Controller 36% / Sentinel 22% / Duelist ~0% — initiator
+    // leads (the user's ~43% target) without being lopsided. Tuned against the
+    // [14c] smoke test; see docs/VCT_REALISM_SPEC.md.
     switch (r) {
-        case Role::Controller: return 0.32;
-        case Role::Initiator:  return 0.30;
-        case Role::Sentinel:   return 0.18;
-        case Role::Duelist:    return 0.04;   // extreme rarity
+        case Role::Initiator:  return 0.24;
+        case Role::Controller: return 0.27;
+        case Role::Sentinel:   return 0.27;
+        case Role::Duelist:    return 0.03;   // rare
         default:               return 0.10;
     }
 }
@@ -2636,8 +3017,10 @@ Player::ResignOffer Player::propose_resign_offer(const Team& team, int current_y
     else if (lp <= 0.75) out.years = 3;
     else                 out.years = 4;
 
-    // max_acceptable_years = preferred bucket + 1 (some headroom).
-    out.max_acceptable_years = std::min(5, out.years + 1);
+    // max_acceptable_years — matches evaluate_resign_offer's rebalanced buckets
+    // (preferred + 2): even a short-pref personality tolerates 3 years; length
+    // preference prices the deal rather than hard-capping it.
+    out.max_acceptable_years = std::min(5, out.years + 2);
 
     // ---- willingness -------------------------------------------------------
     double w = 0.50;
@@ -2768,13 +3151,22 @@ static constexpr int kResignAcceptThreshold = 55;
 
 Player::ResignBreakdown Player::evaluate_resign_offer(int amount_k, int years,
                                                        const Team& team) const {
-    // 3-arg delegator — default to natural role (the player's primary_role).
-    return evaluate_resign_offer(amount_k, years, team, primary_role);
+    // 3-arg delegator — natural role, no bonus/promise.
+    return evaluate_resign_offer(amount_k, years, team, primary_role, 0, false);
 }
 
 Player::ResignBreakdown Player::evaluate_resign_offer(int amount_k, int years,
                                                        const Team& team,
                                                        Role offered_role) const {
+    // 4-arg delegator — role-aware, no bonus/promise.
+    return evaluate_resign_offer(amount_k, years, team, offered_role, 0, false);
+}
+
+Player::ResignBreakdown Player::evaluate_resign_offer(int amount_k, int years,
+                                                       const Team& team,
+                                                       Role offered_role,
+                                                       int signing_bonus_k,
+                                                       bool promise_starter) const {
     ResignBreakdown b;
     // DETERMINISTIC ask reference — must not jitter per frame because the
     // UI calls this every frame for the live breakdown. `propose_resign_offer`
@@ -2790,14 +3182,26 @@ Player::ResignBreakdown Player::evaluate_resign_offer(int amount_k, int years,
     ro.amount_k = det.amount_k;
     // Min acceptable = 85% of ask (Greedy/Mercenary get 95% in the desire
     // gate). max_acceptable_years comes from desire_length_pref bucket + 1.
+    // REBALANCED 2026-06-28: the old buckets (1..4 → max 2..5) made 3+ year
+    // deals IMPOSSIBLE for Mercenary/Greedy/RingChaser and capped neutral
+    // players at 3 — combined with the years hard-block below, no amount of
+    // money could buy a longer deal (user report: "can't re-sign anyone past
+    // 2 years"). New buckets: even the shortest-pref personality tolerates 3
+    // years; a neutral player 4; Loyal/StabilitySeeker the full 5. Length
+    // preference still prices the deal via years_mod — it's a cost, not a wall.
     double lp = desire_length_pref(team);
-    int year_bucket = (lp <= 0.25) ? 1
-                     : (lp <= 0.50) ? 2
-                     : (lp <= 0.75) ? 3 : 4;
-    ro.years = year_bucket;
+    int year_bucket = (lp <= 0.25) ? 2
+                     : (lp <= 0.50) ? 3
+                     : (lp <= 0.75) ? 4 : 5;
+    ro.years = year_bucket - 1;                        // preferred length (1..4)
     ro.max_acceptable_years = std::min(5, year_bucket + 1);
     bool stiff = (desire == Desire::Greedy || desire == Desire::Mercenary);
-    ro.min_acceptable_k = static_cast<int>(ro.amount_k * (stiff ? 0.95 : 0.85));
+    // Round (not truncate) AND clamp to [floor, cap] to match
+    // propose_resign_offer's min_acceptable_k so the UI breakdown and the
+    // engine decision never disagree.
+    ro.min_acceptable_k = clamp_v(
+        static_cast<int>(std::round(ro.amount_k * (stiff ? 0.95 : 0.85))),
+        kSalaryFloorK, kSalaryCapK);
     bool same_team = (team.name == team_name);
 
     // --- 1. Salary vs ASK ------------------------------------------------
@@ -2955,42 +3359,122 @@ Player::ResignBreakdown Player::evaluate_resign_offer(int amount_k, int years,
             role_mod = 0;
         } else {
             double rf = role_fit_score(r);
-            if      (rf >= 0.75) role_mod = -6;   // good fit, small ask premium
-            else if (rf >= 0.55) role_mod = -14;  // possible, real pause
-            else if (rf >= 0.35) role_mod = -28;  // stretch, needs overpay
-            else                 role_mod = -45;  // mismatch, near-hard reject
+            // SMOOTH compatibility penalty (was a 4-step cliff that dinged an
+            // 0.84-fit the same as a 0.76-fit). An ~80%-compatible flex now pays
+            // only a small premium (~-9); a true mismatch (duelist on
+            // controller, rf~0.2) pays the full ~-45.
+            role_mod = (rf >= 1.0) ? 0
+                     : -static_cast<int>(std::lround((1.0 - rf) * 45.0));
             if (rf < 0.35 && b.reject_reason.empty()) {
                 b.reject_reason = "Offered role doesn't fit this player's skillset.";
             }
         }
     }
     b.desire_mod += role_mod;  // folded into desire_mod for the existing label
-    // Emit as a distinct label so the UI can break out "Role Fit" separately
-    // from generic "Personality" — added after the existing labels list below.
-    // (We append to b.labels after the totals are computed; see the bottom
-    // of this function.)
+
+    // --- 7b. Personality lean on the DECISION ---------------------------
+    // loyalty pulls to stay (and mildly resists leaving); ambition wants a
+    // contender (penalizes weak teams, rewards strong); ego stings on below-ask
+    // offers. The ego term is MONOTONIC-SAFE: it is only negative when amount <
+    // ask and shrinks to 0 at ask, so a bigger offer never lowers the score.
+    {
+        if (same_team) b.personality_mod += static_cast<int>((loyalty - 50) / 49.0 * 12.0);
+        else           b.personality_mod -= static_cast<int>(std::max(0, loyalty - 50) / 49.0 * 6.0);
+        double avg = avg_roster_ovr(team);
+        double amb = (ambition - 50) / 49.0;
+        if      (avg >= 78.0) b.personality_mod += static_cast<int>(amb * 8.0);
+        else if (avg < 65.0)  b.personality_mod -= static_cast<int>(std::max(0.0, amb) * 10.0);
+        if (amount_k < ask) {
+            double under = static_cast<double>(ask - amount_k) / ask;   // 0..1
+            b.personality_mod -= static_cast<int>(std::max(0, ego - 50) / 49.0 * under * 18.0);
+        }
+    }
+
+    // --- 7c. Multi-year sweeteners (signing bonus + starter promise) -----
+    // MONOTONIC sweeteners — bigger bonus / a starter guarantee can only raise
+    // acceptance. Bonus is amortized over the deal (a 2y deal feels it more).
+    if (signing_bonus_k > 0) {
+        double eff_per_yr = static_cast<double>(signing_bonus_k) / std::max(1, years);
+        b.bonus_mod = std::min(15, static_cast<int>(std::round(eff_per_yr / 8.0)));
+    }
+    if (promise_starter) {
+        b.promise_mod = 6 + static_cast<int>(std::max(0, (ambition + ego) / 2 - 50) / 49.0 * 14.0);
+        b.promise_mod = std::min(20, b.promise_mod);
+    }
+
+    b.ask_k = ro.amount_k;
 
     // --- Total -----------------------------------------------------------
     b.total = b.base_score + b.salary_mod + b.prestige_mod
-            + b.contender_mod + b.loyalty_mod + b.years_mod + b.desire_mod;
+            + b.contender_mod + b.loyalty_mod + b.years_mod + b.desire_mod
+            + b.personality_mod + b.bonus_mod + b.promise_mod;
     if (b.total < 0)   b.total = 0;
     if (b.total > 100) b.total = 100;
 
-    // Hard floor: below min_acceptable_k OR years > max → always reject
+    // Over-length is now a STEEP PRICE, not a wall (2026-06-28): one year past
+    // the personality's comfort can be bought with a strong package (money +
+    // bonus + prestige), two-plus is effectively unreachable. Applied AFTER the
+    // clamp above would be wrong — fold it into the pre-clamp total instead.
+    {
+        int over_years = std::max(0, years - ro.max_acceptable_years);
+        if (over_years > 0) {
+            int pen = 14 * over_years + 6;   // -20 at +1, -34 at +2
+            b.years_mod -= pen;
+            b.total     -= pen;
+            if (b.total < 0) b.total = 0;
+            if (over_years >= 2 && b.reject_reason.empty())
+                b.reject_reason = "That's far longer than this player will commit to.";
+        }
+    }
+
+    // Hard floor: below min_acceptable_k or a nonsense length → always reject
     // regardless of score (those are the engine's invariant rules).
-    bool hard_block = (amount_k < ro.min_acceptable_k)
-                   || (years < 1)
-                   || (years > ro.max_acceptable_years);
+    bool hard_block = (amount_k < ro.min_acceptable_k) || (years < 1);
     if (hard_block) {
         b.total = std::min(b.total, kResignAcceptThreshold - 1);
         if (b.reject_reason.empty()) {
-            if (years < 1)                            b.reject_reason = "Offer must be at least 1 year.";
-            else if (amount_k < ro.min_acceptable_k)  b.reject_reason = "Offer below player's minimum acceptable salary.";
-            else                                      b.reject_reason = "Offer exceeds maximum years the player will sign for.";
+            if (years < 1) b.reject_reason = "Offer must be at least 1 year.";
+            else           b.reject_reason = "Offer below player's minimum acceptable salary.";
         }
     }
 
     b.will_accept = (b.total >= kResignAcceptThreshold);
+
+    // --- Counter-offer (near-miss only) ----------------------------------
+    // If the player rejected but the deal is reachable (not a hard role
+    // mismatch), surface the minimum salary that WOULD clear acceptance at
+    // these years — a real "meet me here". Invert the monotonic salary lever
+    // (salary_mod = over*92) against the score gap, computed from the RAW
+    // non-salary components so the counter, when accepted, actually passes.
+    if (!b.will_accept) {
+        int non_salary = b.base_score + b.prestige_mod + b.contender_mod
+                       + b.loyalty_mod + b.years_mod + b.desire_mod
+                       + b.personality_mod + b.bonus_mod + b.promise_mod;
+        int need = (kResignAcceptThreshold + 1) - non_salary;   // salary_mod needed
+        bool reachable = (role_mod > -40);   // not a near-hard role mismatch
+        if (reachable && need <= 55) {        // 55 = max salary_mod (the +55 cap)
+            double over = (need <= 0) ? 0.0 : std::min(0.60, need / 92.0);
+            int counter_amt = static_cast<int>(std::ceil(ask * (1.0 + over)));
+            counter_amt = clamp_v(std::max(counter_amt, ro.min_acceptable_k),
+                                  kSalaryFloorK, kSalaryCapK);
+            int counter_yrs = clamp_v(years, 1, ro.max_acceptable_years);
+            // ROUND-TRIP VERIFY: the salary CAP can clamp counter_amt below the
+            // value that actually clears 55 (high-ask players). Re-derive the
+            // salary_mod at the clamped counter and only surface the counter if
+            // non_salary + that salary_mod truly accepts — otherwise the card
+            // would recommend a number the player still rejects.
+            int sm;
+            double cr = static_cast<double>(counter_amt) / ask;
+            if (cr >= 1.0) sm =  static_cast<int>(std::round(std::min(0.60, cr - 1.0) * 92.0));
+            else           sm = -static_cast<int>(std::round(std::min(0.40, 1.0 - cr) * 88.0));
+            bool clears = (non_salary + sm) >= kResignAcceptThreshold;
+            if (clears && counter_amt > amount_k && counter_amt <= ask * 2) {
+                b.has_counter      = true;
+                b.counter_amount_k = counter_amt;
+                b.counter_years    = counter_yrs;
+            }
+        }
+    }
 
     // --- Verdict label ---------------------------------------------------
     if      (b.total >= 85) b.verdict = "OVERPAY";
@@ -3028,6 +3512,25 @@ bool Player::accepts_resign_offer(int amount_k, int years, const Team& team) con
     return evaluate_resign_offer(amount_k, years, team).will_accept;
 }
 
+int Player::register_rejected_offer(int amount_k, int years, const Team& team) {
+    // A rejected offer is not free: lowball / insulting offers sour the
+    // player's mood toward this org (raising the dignity floor via
+    // refuses_to_negotiate + the amount_with_mood demand), so the user can't
+    // just spam the slider up 1K at a time. A reasonable near-miss costs
+    // nothing — that's normal negotiating. Ego amplifies the sting. Mood decays
+    // across offseason days (decay_mood) so anger fades over time.
+    // Returns the tier for the UI: 0 = reasonable miss, 1 = lowball, 2 = insult.
+    int ask = std::max(1, evaluate_resign_offer(amount_k, years, team).ask_k);
+    double ratio = static_cast<double>(amount_k) / ask;
+    double ego_amp = 1.0 + std::max(0, ego - 50) / 49.0 * 0.5;   // up to +50%
+    int tier; double mood_hit;
+    if (ratio < 0.70)      { tier = 2; mood_hit = 0.18 * ego_amp; }   // insulting
+    else if (ratio < 0.85) { tier = 1; mood_hit = 0.08 * ego_amp; }   // lowball
+    else                   { tier = 0; mood_hit = 0.0;            }   // reasonable
+    if (mood_hit > 0.0) bump_mood(team.name, mood_hit);
+    return tier;
+}
+
 static int monte_carlo_potential(const Player& proto);  // defined below
 
 PlayerPtr generate_player(int min_age, int max_age, std::string_view region,
@@ -3060,24 +3563,27 @@ PlayerPtr generate_player(int min_age, int max_age, std::string_view region,
 
     double roll = rng().uniform();
     int base;
-    // Base attribute mean lottery. With the tighter OVR formula
-    // (mean*0.92 - 9), these bands map roughly to:
-    //   base 82-91 -> OVR 66-75 (generational baseline before archetype)
-    //   base 72-81 -> OVR 57-65 (elite)
-    //   base 62-71 -> OVR 48-56 (good)
-    //   base 52-61 -> OVR 39-47 (solid pro)
-    //   base 42-51 -> OVR 30-38 (fringe)
-    //   base <42   -> OVR <30  (academy / ranked grinder)
-    // Top-end spikes thinned ~3 points so the rookie archetype bumps
-    // (+12 to +18 on key attrs) are what creates the 70+ outliers
-    // rather than the base lottery doing it on its own.
-    if      (roll < 0.0005) base = rng().irange(82, 91);
-    else if (roll < 0.005)  base = rng().irange(72, 81);
-    else if (roll < 0.03)   base = rng().irange(62, 71);
-    else if (roll < 0.13)   base = rng().irange(52, 61);
-    else if (roll < 0.38)   base = rng().irange(42, 51);
-    else if (roll < 0.73)   base = rng().irange(32, 41);
-    else                    base = rng().irange(22, 31);
+    // Base attribute mean lottery. The LIVE OVR formula is mean*0.95 + 1
+    // (ovr_from_attrs), so a rookie's spawn OVR is ~= base + a small archetype
+    // mean bump (~+1.5). That means OVR >= 50 corresponds to base >= ~50.
+    // Bands below put only ~11% of rookies at base >= 50 so that ~85-90% of a
+    // class spawns BELOW tier-1 level (OVR < 50) and only a small slice arrives
+    // genuinely starter-ready — most prospects must be DEVELOPED, not plug-and-
+    // play. Mapping (base -> OVR via 0.95*base+1, before archetype):
+    //   base 80-90 -> OVR ~77-87 (generational)        0.05%
+    //   base 70-79 -> OVR ~67-76 (elite ceiling)       ~0.35%
+    //   base 60-69 -> OVR ~58-66 (high-end)            ~1.8%
+    //   base 50-58 -> OVR ~48-56 (tier-1 ready)        ~8.8%
+    //   base 40-49 -> OVR ~39-48 (solid pro / acad.)   ~23%
+    //   base 30-39 -> OVR ~30-38 (fringe)              ~33%
+    //   base 20-30 -> OVR ~20-29 (raw ranked grinder)  ~33%
+    if      (roll < 0.0005) base = rng().irange(80, 90);
+    else if (roll < 0.004)  base = rng().irange(70, 79);
+    else if (roll < 0.022)  base = rng().irange(60, 69);
+    else if (roll < 0.11)   base = rng().irange(50, 58);
+    else if (roll < 0.34)   base = rng().irange(40, 49);
+    else if (roll < 0.67)   base = rng().irange(30, 39);
+    else                    base = rng().irange(20, 30);
 
     Attributes a{};
     auto fill = [&](Attr k, int spread) {
@@ -3165,23 +3671,45 @@ PlayerPtr generate_player(int min_age, int max_age, std::string_view region,
         p->tend_adaptive        = rng().irange(30, 90);
     }
 
+    // === Personality scalars (1-99) ===
+    // Seeded around 50 with spread, then nudged by potential/age so they read
+    // believably. Drive contract DEMANDS (greed/ego raise the ask) and
+    // negotiation DECISIONS (loyalty re-sign discount, ambition wants winners,
+    // ego punishes lowballs). Lightly correlated, never extreme by default.
+    {
+        p->ambition = clamp_attr(rng().irange(30, 70));
+        p->loyalty  = clamp_attr(rng().irange(30, 70));
+        p->greed    = clamp_attr(rng().irange(30, 70));
+        p->ego      = clamp_attr(rng().irange(30, 70));
+        int pot = p->potential;
+        if (p->age <= 23 && pot >= 75) p->ambition = clamp_attr(p->ambition + 12);
+        p->ego   = clamp_attr(p->ego   + (pot - 60) / 5);
+        p->greed = clamp_attr(p->greed + (pot - 60) / 6);
+        if (p->age >= 30) {
+            p->loyalty = clamp_attr(p->loyalty + 10);
+            p->greed   = clamp_attr(p->greed - 6);
+        }
+    }
+
     // === Agent pool size roll ===
-    // Distribution targets:
-    //   ~0.1%  -> 6-7 agents (ultra flex, league-wide unicorn)
-    //   ~9-10% -> 5 agents (top-tier flex)
-    //   ~25%   -> 4 agents (solid flex)
-    //   ~55%   -> 3 agents (most pros — focused but adaptable)
-    //   ~10%   -> 1-2 agents (one-trick / two-trick)
-    // The Adaptability and FlexibleUtility-style players naturally lean
-    // toward larger pools through later archetype tweaks.
+    // VCT-accurate distribution (widened 2026-06-20): real pros are NOT
+    // one-tricks — most cover their main role PLUS a couple of cross-role
+    // agents. Modal pro is now 5 agents (was 3); one-tricks stay rare.
+    //   ~3%   -> 1-2 agents (true one/two-trick)
+    //   ~12%  -> 3 agents (focused)
+    //   ~30%  -> 4 agents (solid flex)
+    //   ~34%  -> 5 agents (modal pro)
+    //   ~18%  -> 6 agents (broad flex)
+    //   ~3%   -> 7 agents (ultra-flex unicorn)
     {
         double r = rng().uniform();
         int sz;
-        if (r < 0.001)       sz = rng().irange(6, 7);   // ultra flex
-        else if (r < 0.10)   sz = 5;
-        else if (r < 0.35)   sz = 4;
-        else if (r < 0.90)   sz = 3;
-        else                 sz = rng().irange(1, 2);
+        if      (r < 0.03)  sz = rng().irange(1, 2);
+        else if (r < 0.15)  sz = 3;
+        else if (r < 0.45)  sz = 4;
+        else if (r < 0.79)  sz = 5;
+        else if (r < 0.97)  sz = 6;
+        else                sz = 7;
         p->agent_pool_size = sz;
     }
     p->update_agent_pool();
@@ -3226,6 +3754,19 @@ PlayerPtr generate_player(int min_age, int max_age, std::string_view region,
     // is wasted work. Team rosters + rookie classes still get the full MC.
     if (deep_potential) {
         p->potential = monte_carlo_potential(*p);
+    }
+
+    // === Reputation (FM-style fame) seed ================================
+    // DETERMINISTIC (no rng) so the generation stream is byte-identical. At world
+    // birth there's no match history, so approximate career standing from OVR
+    // (skill≈renown proxy) + a tenure term (older good players are more established)
+    // + a little upside for high-ceiling youth. Evolves slowly each season in
+    // save_history_and_progress; a promoted club's players lag reality for years.
+    {
+        double ov  = p->ovr();
+        double rep = 500.0 + (ov - 45.0) * 135.0 + (p->age - 19) * 55.0
+                   + std::max(0, p->potential - 70) * 12.0;
+        p->reputation = static_cast<int>(std::lround(clamp_v(rep, 150.0, 9600.0)));
     }
 
     return p;
@@ -3332,6 +3873,14 @@ Position position_of(const Player& p) noexcept {
         case Role::Initiator:  return Position::Initiator;
         default:               return Position::Initiator;  // sane fallback
     }
+}
+
+bool is_internationally_marketable(const Player& p) {
+    // Proven by a real career OR by clear quality. Raw foreign youth fail this
+    // and come up through the soloq -> Tier-3 pipeline instead of flooding the
+    // free-agent market as if international moves were routine.
+    return p.career_matches >= config().intl_fa_min_matches ||
+           p.ovr() >= config().intl_fa_min_ovr;
 }
 
 }  // namespace vlr

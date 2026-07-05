@@ -62,10 +62,14 @@ set CORE_SRC=^
  "%SRC_DIR%\NamesData.cpp" ^
  "%SRC_DIR%\Agent.cpp" ^
  "%SRC_DIR%\Coach.cpp" ^
+ "%SRC_DIR%\Scout.cpp" ^
+ "%SRC_DIR%\Analyst.cpp" ^
  "%SRC_DIR%\Player.cpp" ^
  "%SRC_DIR%\Team.cpp" ^
  "%SRC_DIR%\Match.cpp" ^
  "%SRC_DIR%\MatchExport.cpp" ^
+ "%SRC_DIR%\DashboardExport.cpp" ^
+ "%SRC_DIR%\SaveGame.cpp" ^
  "%SRC_DIR%\Series.cpp" ^
  "%SRC_DIR%\Tournament.cpp" ^
  "%SRC_DIR%\League.cpp" ^
@@ -92,19 +96,25 @@ if errorlevel 1 ( popd & exit /b 1 )
 echo === Compiling vlrtest.exe (%MODE%) ===
 cl %CXXFLAGS% /c %CORE_SRC% "%SRC_DIR%\smoke_test.cpp"
 if errorlevel 1 ( popd & exit /b 1 )
-link /nologo /out:vlrtest.exe %LDFLAGS% Common.obj Country.obj Names.obj NamesData.obj Agent.obj Coach.obj Player.obj Team.obj Match.obj MatchExport.obj Series.obj Tournament.obj League.obj SoloQ.obj GameManager.obj Goat.obj FlagBitmaps.obj smoke_test.obj
+link /nologo /out:vlrtest.exe %LDFLAGS% Common.obj Country.obj Names.obj NamesData.obj Agent.obj Coach.obj Scout.obj Analyst.obj Player.obj Team.obj Match.obj MatchExport.obj DashboardExport.obj SaveGame.obj Series.obj Tournament.obj League.obj SoloQ.obj GameManager.obj Goat.obj FlagBitmaps.obj smoke_test.obj
 if errorlevel 1 ( popd & exit /b 1 )
 
 echo === Compiling vlrmanager.exe (console fallback) ===
 cl %CXXFLAGS% /c "%SRC_DIR%\main.cpp"
 if errorlevel 1 ( popd & exit /b 1 )
-link /nologo /out:vlrmanager.exe %LDFLAGS% Common.obj Country.obj Names.obj NamesData.obj Agent.obj Coach.obj Player.obj Team.obj Match.obj MatchExport.obj Series.obj Tournament.obj League.obj SoloQ.obj GameManager.obj Goat.obj FlagBitmaps.obj main.obj
+link /nologo /out:vlrmanager.exe %LDFLAGS% Common.obj Country.obj Names.obj NamesData.obj Agent.obj Coach.obj Scout.obj Analyst.obj Player.obj Team.obj Match.obj MatchExport.obj DashboardExport.obj SaveGame.obj Series.obj Tournament.obj League.obj SoloQ.obj GameManager.obj Goat.obj FlagBitmaps.obj main.obj
 if errorlevel 1 ( popd & exit /b 1 )
 
 echo === Compiling vlrgui.exe (ImGui DX11) ===
 cl %CXXFLAGS% /c "%SRC_DIR%\gui_main.cpp"
 if errorlevel 1 ( popd & exit /b 1 )
-link /nologo /out:vlrgui.exe /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup %LDFLAGS% Common.obj Country.obj Names.obj NamesData.obj Agent.obj Coach.obj Player.obj Team.obj Match.obj MatchExport.obj Series.obj Tournament.obj League.obj SoloQ.obj GameManager.obj Goat.obj FlagBitmaps.obj LogoArt.obj gui_main.obj imgui.obj imgui_draw.obj imgui_tables.obj imgui_widgets.obj imgui_impl_win32.obj imgui_impl_dx11.obj user32.lib gdi32.lib shell32.lib comdlg32.lib d3d11.lib dxgi.lib d3dcompiler.lib
+link /nologo /out:vlrgui.exe /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup %LDFLAGS% Common.obj Country.obj Names.obj NamesData.obj Agent.obj Coach.obj Scout.obj Analyst.obj Player.obj Team.obj Match.obj MatchExport.obj DashboardExport.obj SaveGame.obj Series.obj Tournament.obj League.obj SoloQ.obj GameManager.obj Goat.obj FlagBitmaps.obj LogoArt.obj gui_main.obj imgui.obj imgui_draw.obj imgui_tables.obj imgui_widgets.obj imgui_impl_win32.obj imgui_impl_dx11.obj user32.lib gdi32.lib shell32.lib comdlg32.lib d3d11.lib dxgi.lib d3dcompiler.lib
+if errorlevel 1 ( popd & exit /b 1 )
+
+echo === Compiling vlrweb.exe (WebView2 host) ===
+cl %CXXFLAGS% /DUNICODE /D_UNICODE /I"%ROOT%third_party\webview2\include" /c "%SRC_DIR%\vlrweb.cpp"
+if errorlevel 1 ( popd & exit /b 1 )
+link /nologo /out:vlrweb.exe /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup %LDFLAGS% Common.obj Country.obj Names.obj NamesData.obj Agent.obj Coach.obj Scout.obj Analyst.obj Player.obj Team.obj Match.obj MatchExport.obj DashboardExport.obj SaveGame.obj Series.obj Tournament.obj League.obj SoloQ.obj GameManager.obj Goat.obj FlagBitmaps.obj vlrweb.obj "%ROOT%third_party\webview2\lib\WebView2LoaderStatic.lib" user32.lib gdi32.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib version.lib shlwapi.lib
 if errorlevel 1 ( popd & exit /b 1 )
 
 echo === Compiling Play.exe (auto-build launcher) ===
@@ -122,6 +132,7 @@ copy /Y "%BUILD%\Play.exe" "%ROOT%Play.exe" >nul
 echo.
 echo Build complete:
 echo   %BUILD%\vlrgui.exe       (ImGui UI - the real game)
+echo   %BUILD%\vlrweb.exe       (WebView2 UI - the web migration)
 echo   %BUILD%\vlrtest.exe      (smoke tests)
 echo   %BUILD%\vlrmanager.exe   (console fallback)
 
